@@ -14,6 +14,9 @@
 - 商品名称/描述的数据库级多语言扩展表与 API
 - 前端登录、商品、客户、采购、销售、首页汇总和报表汇总已接入真实 API
 - 采购入库与扫码销售会事务化更新库存并写入库存流水
+- API 启动时自动执行版本化数据库迁移，已有数据无需重新初始化
+- 数据库用户、scrypt 加盐密码哈希、登录限流和管理员工界面
+- 管理员、采购、仓库、销售、财务五类角色的 API 与菜单权限
 
 ## 增加新语言
 
@@ -26,11 +29,13 @@
 
 DS1517+ 与 DSM 7.1.1 用户请优先阅读 [`README-DS1517+.md`](README-DS1517+.md)，并使用 `docker-compose.ds1517.yml`。
 
-1. 将整个 `erp-nas` 目录上传到 NAS，例如 `/volume1/docker/erp-nas`。
+1. 将整个 `erp-nas` 目录上传到 NAS，例如 `/volume2/docker/erp-nas`。
 2. 将 `.env.example` 复制为 `.env`，替换其中所有密码和密钥。
 3. 在 Container Manager 新建“项目”，来源选择此目录中的 `docker-compose.yml`。
 4. 构建并启动后访问 `http://NAS-IP:8088`。
 5. 使用 `.env` 中的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 登录。
+
+已有安装升级时不要删除 `data/postgres`。覆盖项目文件后再次运行部署脚本，API 会自动执行尚未应用的迁移；管理员密码仍以 NAS `.env` 中的 `ADMIN_PASSWORD` 为准。
 
 如需公网访问，建议使用群晖反向代理绑定域名并启用 Let's Encrypt HTTPS；数据库和 API 不应直接暴露公网端口。
 

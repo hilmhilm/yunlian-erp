@@ -87,6 +87,12 @@ const normalizeSale = (sale) => ({
   customer: sale.customer || "",
 });
 
+const normalizeUser = (user) => ({
+  ...user,
+  displayName: user.display_name ?? user.displayName ?? "",
+  lastLoginAt: user.last_login_at ?? user.lastLoginAt ?? null,
+});
+
 export async function fetchProducts(token, search = "") {
   const products = await request(`/products?search=${encodeURIComponent(search)}`, { token });
   return products.map(normalizeProduct);
@@ -149,4 +155,25 @@ export async function fetchReportSummary(token) {
     purchaseTotal: Number(data.purchase_total || 0),
     stockTotal: Number(data.stock_total || 0),
   };
+}
+
+export async function fetchUsers(token) {
+  return (await request("/users", { token })).map(normalizeUser);
+}
+
+export async function fetchCurrentUser(token) {
+  const data = await request("/auth/me", { token });
+  return normalizeUser(data.user);
+}
+
+export async function createUser(token, user) {
+  return normalizeUser(await request("/users", {
+    token, method: "POST", body: JSON.stringify(user),
+  }));
+}
+
+export async function updateUser(token, id, changes) {
+  return normalizeUser(await request(`/users/${id}`, {
+    token, method: "PATCH", body: JSON.stringify(changes),
+  }));
 }

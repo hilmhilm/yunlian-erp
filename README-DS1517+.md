@@ -8,7 +8,7 @@ DSM 7.1.1 使用套件中心里的 **Docker** 套件；DSM 7.2 才改为 **Conta
 
 1. DSM 套件中心安装并启动 **Docker**。
 2. 控制面板 → 终端机和 SNMP → 启用 SSH 服务。
-3. File Station 创建 `/volume1/docker/yunlian-erp`。
+3. File Station 创建 `/volume2/docker/erp-nas`。
 4. 将整个项目目录上传到该目录。
 5. 建议至少有 4GB 内存；2GB 也能运行，但构建镜像期间应停止不必要的套件。
 
@@ -17,17 +17,17 @@ DSM 7.1.1 使用套件中心里的 **Docker** 套件；DSM 7.2 才改为 **Conta
 通过 SSH 进入 NAS 后执行：
 
 ```sh
-cd /volume1/docker/yunlian-erp
+cd /volume2/docker/erp-nas
 cp .env.example .env
 vi .env
 ```
 
-必须替换 `POSTGRES_PASSWORD`、`JWT_SECRET` 和 `ADMIN_PASSWORD`。`JWT_SECRET` 建议使用 32 个以上随机字符。
+必须替换 `POSTGRES_PASSWORD`、`JWT_SECRET` 和 `ADMIN_PASSWORD`。`JWT_SECRET` 必须使用至少 32 个随机字符。
 
 ## 三、启动
 
 ```sh
-cd /volume1/docker/yunlian-erp
+cd /volume2/docker/erp-nas
 chmod +x deploy-ds1517.sh
 sudo ./deploy-ds1517.sh
 ```
@@ -39,6 +39,10 @@ http://NAS局域网IP:8088
 ```
 
 登录账号来自 `.env` 的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD`。
+
+### 已有安装升级
+
+升级前先备份数据库，然后在 File Station 覆盖项目代码（保留 NAS 上原有 `.env` 和 `data/postgres`），再通过 DSM「任务计划」以 root 重新运行 `deploy-ds1517.sh`。API 容器启动时会自动执行尚未应用的版本化数据库迁移，不需要手工执行 SQL，也不要删除或重建数据库目录。
 
 ## 四、HTTPS 与公网访问
 
@@ -54,17 +58,17 @@ http://NAS局域网IP:8088
 PostgreSQL 数据保存在：
 
 ```text
-/volume1/docker/yunlian-erp/data/postgres
+/volume2/docker/erp-nas/data/postgres
 ```
 
 部署脚本会把该目录设置为 PostgreSQL Alpine 容器用户 `70:70`；请勿在 File Station 中手工改回普通 DSM 用户所有权。
 
-将 `/volume1/docker/yunlian-erp` 加入 Hyper Backup。数据库正在写入时，仅复制文件不等于一致性备份；正式上线后还应增加定时 `pg_dump` 任务。
+将 `/volume2/docker/erp-nas` 加入 Hyper Backup。数据库正在写入时，仅复制文件不等于一致性备份；正式上线后还应增加定时 `pg_dump` 任务。
 
 ## 六、常用维护命令
 
 ```sh
-cd /volume1/docker/yunlian-erp
+cd /volume2/docker/erp-nas
 sudo docker-compose -f docker-compose.ds1517.yml ps
 sudo docker-compose -f docker-compose.ds1517.yml logs --tail=100
 sudo docker-compose -f docker-compose.ds1517.yml restart

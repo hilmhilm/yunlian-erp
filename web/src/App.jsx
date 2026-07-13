@@ -8,13 +8,20 @@ import {
 import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest,
-  createProduct as createProductRequest, createPurchase as createPurchaseRequest,
-  createSale as createSaleRequest, fetchCustomers, fetchDashboard, fetchProducts,
-  fetchPurchases, fetchReportSummary, fetchSales, getStoredSession,
-  login as loginRequest, storeSession,
+  createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
+  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProducts,
+  fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
+  login as loginRequest, storeSession, updateUser as updateUserRequest,
 } from "./api.js";
 
 const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", customers: "customerList", sales: "salesList", pos: "scanSales", reports: "reports", settings: "settings" };
+const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
+const pageRoles = {
+  purchases: ["admin","purchasing","warehouse","finance"],
+  customers: ["admin","sales","finance"], sales: ["admin","sales","finance"],
+  pos: ["admin","sales"], reports: ["admin","finance"],
+};
+const canAccess = (role,page) => !pageRoles[page] || pageRoles[page].includes(role);
 
 const menu = [
   { id: "dashboard", labelKey: "dashboard", icon: Home },
@@ -70,13 +77,14 @@ function Login({ onLogin }) {
   </div>;
 }
 
-function Sidebar({ page, setPage, open, setOpen }) {
+function Sidebar({ page, setPage, open, setOpen, role }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(["goods", "sales"]);
   const toggle = (label) => setExpanded(v => v.includes(label) ? v.filter(x=>x!==label) : [...v, label]);
+  const visibleMenu=menu.map(item=>item.children?{...item,children:item.children.filter(child=>canAccess(role,child.id))}:item).filter(item=>item.children?item.children.length:canAccess(role,item.id));
   return <aside className={`sidebar ${open ? "open" : ""}`}>
     <div className="side-brand"><Warehouse size={22}/><span>{t("appName")}</span></div>
-    <nav>{menu.map((item, i) => {
+    <nav>{visibleMenu.map((item, i) => {
       const Icon = item.icon;
       if (!item.children) return <button key={i} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id);setOpen(false)}}><Icon size={17}/><span>{t(item.labelKey)}</span></button>;
       const isOpen = expanded.includes(item.labelKey);
@@ -114,7 +122,7 @@ function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, pl
 function DataTable({ columns, rows, renderCell }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title="详情"><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c]):r[c]}</span>)}</div>)}</div>; }
 
-function Products({ products, onCreate, onLoad, loading=false, error="", inventoryOnly=false }) {
+function Products({ products, onCreate, onLoad, loading=false, error="", inventoryOnly=false, canCreate=true }) {
   const { t } = useI18n();
   const [search,setSearch]=useState(""), [modal,setModal]=useState(false);
   const filtered=products.filter(p=>`${p.sku}${p.barcode}${p.name}${p.category}`.toLowerCase().includes(search.toLowerCase()));
@@ -122,16 +130,16 @@ function Products({ products, onCreate, onLoad, loading=false, error="", invento
   const columns=inventoryOnly?[
     {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
   ]:[{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:"单价"},{key:"boxSize",label:"/箱装数"},{key:"price",label:"第二货币价格"},{key:"stock",label:"入库统计"}];
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
 }
 
 function ProductModal({onClose,onSave}) { const {t}=useI18n(); const [form,setForm]=useState({sku:"",barcode:"",name:"",category:""}); const [error,setError]=useState(""); const [saving,setSaving]=useState(false); const save=async()=>{if(!form.sku||!form.name)return setError(t("requiredProductFields"));setError("");setSaving(true);try{await onSave(form)}catch(e){setError(`${t("productCreateFailed")}：${e.message}`)}finally{setSaving(false)}}; return <Modal title={t("newProduct")} onClose={onClose}><div className="form-grid">{Object.entries({sku:"货号",barcode:"条码",name:"产品名称",category:"分类"}).map(([k,l])=><label key={k}>{l}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>; }
 
-function Purchases({ purchases, products, onCreate, onRefresh, loading=false, error="" }) {
+function Purchases({ purchases, products, onCreate, onRefresh, loading=false, error="", canCreate=true }) {
   const { t } = useI18n();
   const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
   const rows=purchases.filter(x=>`${x.id}${x.supplier}`.toLowerCase().includes(search.toLowerCase()));
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder="搜索入库单号或供货商"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={rows} columns={[{key:"id",label:"入库单号"},{key:"date",label:"建单时间"},{key:"supplier",label:"供货商"},{key:"quantity",label:"总数"},{key:"total",label:"采购总价"},{key:"status",label:"审核"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已入库"?"done":"pending"}`}>{r.status}</span>:r[c.key]}/>{modal&&<PurchaseModal products={products} onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder="搜索入库单号或供货商"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={rows} columns={[{key:"id",label:"入库单号"},{key:"date",label:"建单时间"},{key:"supplier",label:"供货商"},{key:"quantity",label:"总数"},{key:"total",label:"采购总价"},{key:"status",label:"审核"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已入库"?"done":"pending"}`}>{r.status}</span>:r[c.key]}/>{modal&&<PurchaseModal products={products} onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
 }
 
 function PurchaseModal({products,onClose,onSave}) {
@@ -143,10 +151,10 @@ function PurchaseModal({products,onClose,onSave}) {
   return <Modal title={t("createPurchase")} onClose={onClose}><div className="form-grid"><label>{t("supplier")}<input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></label><label>{t("warehouseLabel")}<select value={form.warehouse} onChange={e=>setForm({...form,warehouse:e.target.value})}><option value="主仓库">主仓库</option><option value="门店仓">门店仓</option></select></label><label>{t("product")}<select value={form.productId} onChange={e=>chooseProduct(e.target.value)}>{products.map(p=><option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}</select></label><label>{t("quantity")}<input type="number" min="1" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})}/></label><label>{t("unitCost")}<input type="number" min="0" step="0.01" value={form.cost} onChange={e=>setForm({...form,cost:e.target.value})}/></label></div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving||!products.length}>{saving?t("saving"):t("createPurchase")}</button></div></Modal>;
 }
 
-function Customers({ customers,onCreate,onLoad,loading=false,error="" }) {
+function Customers({ customers,onCreate,onLoad,loading=false,error="",canCreate=true }) {
   const {t}=useI18n();
   const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading} placeholder="搜索客户名、电话或城市"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<div className="filter-strip"><span className="selected">全部</span><span>30天</span><span>60天</span><span>90天</span></div><DataTable rows={customers} columns={[{key:"name",label:"客户名"},{key:"phone",label:"电话"},{key:"address",label:"地址"},{key:"city",label:"城市"},{key:"group",label:"分组"}]}/>{modal&&<CustomerModal onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading} placeholder="搜索客户名、电话或城市"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<div className="filter-strip"><span className="selected">全部</span><span>30天</span><span>60天</span><span>90天</span></div><DataTable rows={customers} columns={[{key:"name",label:"客户名"},{key:"phone",label:"电话"},{key:"address",label:"地址"},{key:"city",label:"城市"},{key:"group",label:"分组"}]}/>{modal&&<CustomerModal onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
 }
 function CustomerModal({onClose,onSave}) {
   const {t}=useI18n();
@@ -170,7 +178,18 @@ function POS({products,customers,onSaveSale}) {
 
 function Reports({products,summary}) { const revenue=summary?.salesTotal||0,purchase=summary?.purchaseTotal||0,stock=summary?.stockTotal??products.reduce((s,p)=>s+p.stock,0);return <Page><div className="report-summary"><Stat icon={ShoppingCart} color="#3f9fea" label="销售额" value={money(revenue)} suffix="本期"/><Stat icon={Truck} color="#26b99a" label="采购额" value={money(purchase)} suffix="本期"/><Stat icon={Warehouse} color="#f6a43a" label="库存" value={stock} suffix="件"/><Stat icon={CircleDollarSign} color="#f05a78" label="销售采购差额" value={money(revenue-purchase)} suffix="本期"/></div><section className="panel reports-panel"><h2>报表</h2>{[["货物",["入库报表","采购价格变动","库存报表","调拨分析报表","库存盘点报表","进销存报表"]],["客户",["客户报表","客户账目分析"]],["销售",["销售报表","销售分析","销售趋势图","客单价报表","销售饼状图","利润报表"]],["财务",["财务流水报表","还款报表","日结单","月结单","业绩报表"]]].map(([g,items])=><div className="report-group" key={g}><h3>{g}</h3><div>{items.map((x,i)=><button key={x}><FileBarChart size={18} color={["#3f9fea","#f6a43a","#26b99a"][i%3]}/>{x}</button>)}</div></div>)}</section></Page>; }
 
-function SettingsPage() {return <Page><section className="panel settings-panel"><h2>系统设置</h2><div className="settings-grid">{[[Store,"基础信息","企业名称、货币与语言"],[Warehouse,"仓库管理","多仓库与门店库存"],[Truck,"供货商","采购供货商资料"],[Users,"员工管理","角色与数据权限"],[Tags,"各种选项","分类、单位与价格规则"],[Database,"系统日志","审计、备份与恢复"]].map(([I,t,d])=><button key={t}><I/><span><b>{t}</b><small>{d}</small></span><ChevronDown/></button>)}</div></section></Page>}
+function SettingsPage({currentUser,users,onCreateUser,onUpdateUser,loading=false,error=""}) {
+  const {t}=useI18n();
+  const [modal,setModal]=useState(false);
+  return <Page><section className="panel settings-panel"><h2>{t("systemSettings")}</h2><div className="settings-grid">{[[Store,"基础信息","企业名称、货币与语言"],[Warehouse,"仓库管理","多仓库与门店库存"],[Truck,"供货商","采购供货商资料"],[Tags,"各种选项","分类、单位与价格规则"],[Database,"系统日志","审计、备份与恢复"]].map(([I,title,description])=><button key={title}><I/><span><b>{title}</b><small>{description}</small></span><ChevronDown/></button>)}</div></section>{currentUser.role==="admin"&&<section className="panel settings-panel user-management"><div className="panel-heading"><h2>{t("employeeManagement")}</h2><button className="primary" onClick={()=>setModal(true)} disabled={loading}><Plus size={16}/>{t("addUser")}</button></div>{error&&<div className="form-error">{error}</div>}<div className="table-wrap"><table><thead><tr><th>{t("username")}</th><th>{t("displayName")}</th><th>{t("role")}</th><th>{t("statusLabel")}</th><th>{t("lastLogin")}</th></tr></thead><tbody>{users.map(user=><tr key={user.id}><td>{user.username}</td><td>{user.displayName}</td><td><select value={user.role} disabled={loading||user.id===currentUser.id} onChange={e=>onUpdateUser(user.id,{role:e.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></td><td><button className={user.enabled?"status done":"status pending"} disabled={loading||user.id===currentUser.id} onClick={()=>onUpdateUser(user.id,{enabled:!user.enabled})}>{user.enabled?t("enabled"):t("disabled")}</button></td><td>{user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString():"—"}</td></tr>)}</tbody></table>{!users.length&&<div className="empty">{t("noData")}</div>}</div>{modal&&<UserModal onClose={()=>setModal(false)} onSave={async data=>{await onCreateUser(data);setModal(false)}}/>}</section>}</Page>
+}
+
+function UserModal({onClose,onSave}) {
+  const {t}=useI18n();
+  const [form,setForm]=useState({username:"",displayName:"",password:"",role:"sales"}),[saving,setSaving]=useState(false),[error,setError]=useState("");
+  const save=async()=>{if(!form.username||form.password.length<8)return setError(t("userRequirements"));setSaving(true);setError("");try{await onSave(form)}catch(e){setError(`${t("userCreateFailed")}：${e.message}`)}finally{setSaving(false)}};
+  return <Modal title={t("addUser")} onClose={onClose}><div className="form-grid"><label>{t("username")}<input value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/></label><label>{t("displayName")}<input value={form.displayName} onChange={e=>setForm({...form,displayName:e.target.value})}/></label><label>{t("password")}<input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label><label>{t("role")}<select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></label></div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>
+}
 
 function Page({children}) {return <div className="page-content">{children}</div>}
 function Modal({title,onClose,children}) {return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="modal"><div className="modal-head"><b>{title}</b><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
@@ -178,13 +197,13 @@ function Modal({title,onClose,children}) {return <div className="modal-backdrop"
 export function App() {
   const [session,setSession]=useState(getStoredSession);
   const [page,setPage]=useState("dashboard"),[menuOpen,setMenuOpen]=useState(false);
-  const [products,setProducts]=useState([]),[customers,setCustomers]=useState([]),[purchases,setPurchases]=useState([]),[sales,setSales]=useState([]);
+  const [products,setProducts]=useState([]),[customers,setCustomers]=useState([]),[purchases,setPurchases]=useState([]),[sales,setSales]=useState([]),[users,setUsers]=useState([]);
   const [dashboardSummary,setDashboardSummary]=useState(null),[reportSummary,setReportSummary]=useState(null);
   const [dataLoading,setDataLoading]=useState(false),[dataError,setDataError]=useState("");
   useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
-  const logout=()=>{clearStoredSession();setSession(null);setProducts([]);setCustomers([]);setPurchases([]);setSales([])};
+  const logout=()=>{clearStoredSession();setSession(null);setProducts([]);setCustomers([]);setPurchases([]);setSales([]);setUsers([])};
   const handleError=(error)=>{if(error instanceof ApiError&&error.status===401){logout();return}setDataError(error.message)};
-  const loadAll=async(token=session?.token)=>{if(!token)return;setDataLoading(true);setDataError("");try{const [nextProducts,nextCustomers,nextPurchases,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(token),fetchCustomers(token),fetchPurchases(token),fetchSales(token),fetchDashboard(token),fetchReportSummary(token)]);setProducts(nextProducts);setCustomers(nextCustomers);setPurchases(nextPurchases);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)}catch(error){handleError(error)}finally{setDataLoading(false)}};
+  const loadAll=async(token=session?.token)=>{if(!token)return;setDataLoading(true);setDataError("");try{const nextIdentity=await fetchCurrentUser(token),role=nextIdentity.role;const [nextProducts,nextCustomers,nextPurchases,nextSales,nextDashboard,nextReport,nextUsers]=await Promise.all([fetchProducts(token),["admin","sales","finance"].includes(role)?fetchCustomers(token):Promise.resolve([]),["admin","purchasing","warehouse","finance"].includes(role)?fetchPurchases(token):Promise.resolve([]),["admin","sales","finance"].includes(role)?fetchSales(token):Promise.resolve([]),fetchDashboard(token),["admin","finance"].includes(role)?fetchReportSummary(token):Promise.resolve(null),role==="admin"?fetchUsers(token):Promise.resolve([])]);setProducts(nextProducts);setCustomers(nextCustomers);setPurchases(nextPurchases);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);setUsers(nextUsers);const refreshedSession={...session,user:nextIdentity};storeSession(refreshedSession);setSession(refreshedSession)}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const loadProducts=async(search="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setProducts(await fetchProducts(session.token,search))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const loadCustomers=async(search="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setCustomers(await fetchCustomers(session.token,search))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const refreshPurchases=async()=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setPurchases(await fetchPurchases(session.token))}catch(error){handleError(error)}finally{setDataLoading(false)}};
@@ -195,15 +214,17 @@ export function App() {
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
   const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),fetchReportSummary(session.token)]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
   const addSale=async(sale)=>{await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token),fetchDashboard(session.token),fetchReportSummary(session.token)]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const addUser=async(user)=>{const created=await createUserRequest(session.token,user);setUsers(current=>[...current,created])};
+  const changeUser=async(id,changes)=>{const updated=await updateUserRequest(session.token,id,changes);setUsers(current=>current.map(user=>user.id===updated.id?updated:user))};
   const content=({
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={setPage}/>,
-    products:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError}/>,
-    purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError}/>,
-    inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} inventoryOnly/>,
-    customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError}/>,
+    products:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
     sales:<Sales sales={sales} onRefresh={refreshSales} loading={dataLoading} error={dataError}/>,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
-    reports:<Reports products={products} summary={reportSummary}/>,settings:<SettingsPage/>
+    reports:<Reports products={products} summary={reportSummary}/>,settings:<SettingsPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>
   })[page];
   if(!session)return <Login onLogin={login}/>;
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} role={session.user.role}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
 }
