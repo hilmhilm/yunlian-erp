@@ -24,6 +24,9 @@ const messages = {
     todaySales: "今日销售", inventoryCost: "库存成本", activeCustomers: "活跃客户", newArrival: "新品入库",
     salesReport: "销售报表", recentSales: "最近销售", sevenDayTrend: "近 7 日销售趋势",
     loadingProducts: "正在加载商品…", saving: "正在保存…", productsLoadFailed: "商品加载失败", retry: "重试", productCreateFailed: "商品保存失败", requiredProductFields: "请填写货号和产品名称",
+    dataLoadFailed: "数据加载失败", supplier: "供货商", warehouseLabel: "入库仓库", product: "商品", quantity: "数量", unitCost: "采购单价",
+    requiredPurchaseFields: "请填写供货商、商品和有效数量", purchaseCreateFailed: "采购入库失败", customerName: "客户名称", phone: "电话", city: "城市", address: "地址",
+    requiredCustomerName: "请填写客户名称", customerCreateFailed: "客户保存失败", walkInCustomer: "散客", insufficientStock: "库存不足", orderSaved: "订单已保存，库存已同步扣减", saleSaveFailed: "销售单保存失败",
   },
   en: {
     appName: "CloudLink ERP", tagline: "Your business, under control", loginTitle: "The digital workspace for buyers",
@@ -42,6 +45,9 @@ const messages = {
     todaySales: "Today's sales", inventoryCost: "Inventory cost", activeCustomers: "Active customers", newArrival: "New arrival",
     salesReport: "Sales report", recentSales: "Recent sales", sevenDayTrend: "7-day sales trend",
     loadingProducts: "Loading products…", saving: "Saving…", productsLoadFailed: "Could not load products", retry: "Retry", productCreateFailed: "Could not save product", requiredProductFields: "Enter a SKU and product name",
+    dataLoadFailed: "Could not load data", supplier: "Supplier", warehouseLabel: "Receiving warehouse", product: "Product", quantity: "Quantity", unitCost: "Unit cost",
+    requiredPurchaseFields: "Enter a supplier, product and valid quantity", purchaseCreateFailed: "Could not receive purchase", customerName: "Customer name", phone: "Phone", city: "City", address: "Address",
+    requiredCustomerName: "Enter a customer name", customerCreateFailed: "Could not save customer", walkInCustomer: "Walk-in customer", insufficientStock: "Insufficient stock", orderSaved: "Order saved and inventory updated", saleSaveFailed: "Could not save sales order",
   },
   hu: {
     appName: "CloudLink ERP", tagline: "Az üzlet mindig kézben", loginTitle: "Digitális munkatér beszerzőknek",
@@ -60,6 +66,9 @@ const messages = {
     todaySales: "Mai értékesítés", inventoryCost: "Készletérték", activeCustomers: "Aktív vevők", newArrival: "Új bevételezés",
     salesReport: "Értékesítési riport", recentSales: "Legutóbbi eladások", sevenDayTrend: "7 napos értékesítési trend",
     loadingProducts: "Termékek betöltése…", saving: "Mentés…", productsLoadFailed: "A termékek betöltése sikertelen", retry: "Újra", productCreateFailed: "A termék mentése sikertelen", requiredProductFields: "Adja meg a cikkszámot és a termék nevét",
+    dataLoadFailed: "Az adatok betöltése sikertelen", supplier: "Beszállító", warehouseLabel: "Bevételezési raktár", product: "Termék", quantity: "Mennyiség", unitCost: "Beszerzési egységár",
+    requiredPurchaseFields: "Adjon meg beszállítót, terméket és érvényes mennyiséget", purchaseCreateFailed: "A bevételezés sikertelen", customerName: "Vevő neve", phone: "Telefon", city: "Város", address: "Cím",
+    requiredCustomerName: "Adja meg a vevő nevét", customerCreateFailed: "A vevő mentése sikertelen", walkInCustomer: "Alkalmi vevő", insufficientStock: "Nincs elegendő készlet", orderSaved: "A rendelés mentve, a készlet frissítve", saleSaveFailed: "Az értékesítési rendelés mentése sikertelen",
   },
 };
 

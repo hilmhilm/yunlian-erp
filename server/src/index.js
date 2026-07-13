@@ -95,22 +95,22 @@ app.post("/api/customers", asyncRoute(async (req,res)=>{
   res.status(201).json(result.rows[0]);
 }));
 
-app.get("/api/purchases", asyncRoute(async (_req,res)=>res.json((await pool.query("select * from purchases order by created_at desc limit 500")).rows)));
+app.get("/api/purchases", asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id group by p.id order by p.created_at desc limit 500")).rows)));
 app.post("/api/purchases", asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{await client.query("begin");const b=req.body;
     const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[b.orderNo||`Vin${Date.now()}`,b.supplier,b.warehouse||"主仓库",b.total||0,b.status||"已入库"]);
-    for(const item of b.items||[]){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);}
+    for(const item of b.items||[]){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,b.warehouse||"主仓库",item.quantity,order.rows[0].order_no,req.user.sub]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.get("/api/sales", asyncRoute(async (_req,res)=>res.json((await pool.query("select s.*,c.name customer from sales s left join customers c on c.id=s.customer_id order by s.created_at desc limit 500")).rows)));
+app.get("/api/sales", asyncRoute(async (_req,res)=>res.json((await pool.query("select s.*,c.name customer,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id group by s.id,c.name order by s.created_at desc limit 500")).rows)));
 app.post("/api/sales", asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{await client.query("begin");const b=req.body;
     const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by) values($1,$2,$3,'已完成',$4) returning *",[b.orderNo||`Vs${Date.now()}`,b.customerId||null,b.total||0,req.user.sub]);
-    for(const item of b.items||[]){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount||locked.rows[0].stock<item.quantity)throw new Error(`商品 ${item.productId} 库存不足`);await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);}
+    for(const item of b.items||[]){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount||locked.rows[0].stock<item.quantity)throw new Error(`商品 ${item.productId} 库存不足`);await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.sub]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));

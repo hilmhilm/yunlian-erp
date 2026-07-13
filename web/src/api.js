@@ -59,6 +59,34 @@ const normalizeProduct = (product) => ({
   stock: Number(product.stock || 0),
 });
 
+const formatDate = (value) => value ? new Date(value).toLocaleString([], {
+  year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
+}) : "";
+
+const normalizeCustomer = (customer) => ({
+  ...customer,
+  group: customer.customer_group ?? customer.group ?? "",
+});
+
+const normalizePurchase = (purchase) => ({
+  ...purchase,
+  databaseId: purchase.id,
+  id: purchase.order_no ?? purchase.id,
+  date: formatDate(purchase.created_at),
+  quantity: Number(purchase.quantity || 0),
+  total: Number(purchase.total || 0),
+});
+
+const normalizeSale = (sale) => ({
+  ...sale,
+  databaseId: sale.id,
+  id: sale.order_no ?? sale.id,
+  date: formatDate(sale.created_at),
+  qty: Number(sale.quantity || 0),
+  total: Number(sale.total || 0),
+  customer: sale.customer || "",
+});
+
 export async function fetchProducts(token, search = "") {
   const products = await request(`/products?search=${encodeURIComponent(search)}`, { token });
   return products.map(normalizeProduct);
@@ -71,4 +99,54 @@ export async function createProduct(token, product) {
     body: JSON.stringify(product),
   });
   return normalizeProduct(created);
+}
+
+export async function fetchCustomers(token, search = "") {
+  const customers = await request(`/customers?search=${encodeURIComponent(search)}`, { token });
+  return customers.map(normalizeCustomer);
+}
+
+export async function createCustomer(token, customer) {
+  return normalizeCustomer(await request("/customers", {
+    token, method: "POST", body: JSON.stringify(customer),
+  }));
+}
+
+export async function fetchPurchases(token) {
+  return (await request("/purchases", { token })).map(normalizePurchase);
+}
+
+export async function createPurchase(token, purchase) {
+  return normalizePurchase(await request("/purchases", {
+    token, method: "POST", body: JSON.stringify(purchase),
+  }));
+}
+
+export async function fetchSales(token) {
+  return (await request("/sales", { token })).map(normalizeSale);
+}
+
+export async function createSale(token, sale) {
+  return normalizeSale(await request("/sales", {
+    token, method: "POST", body: JSON.stringify(sale),
+  }));
+}
+
+export async function fetchDashboard(token) {
+  const data = await request("/dashboard", { token });
+  return {
+    products: { count: Number(data.products.count || 0), stock: Number(data.products.stock || 0) },
+    customers: { count: Number(data.customers.count || 0) },
+    sales: { count: Number(data.sales.count || 0), total: Number(data.sales.total || 0) },
+    purchases: { count: Number(data.purchases.count || 0), total: Number(data.purchases.total || 0) },
+  };
+}
+
+export async function fetchReportSummary(token) {
+  const data = await request("/reports/summary", { token });
+  return {
+    salesTotal: Number(data.sales_total || 0),
+    purchaseTotal: Number(data.purchase_total || 0),
+    stockTotal: Number(data.stock_total || 0),
+  };
 }
