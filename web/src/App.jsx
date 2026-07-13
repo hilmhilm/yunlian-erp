@@ -1,0 +1,190 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
+  FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
+  ScanLine, Search, Settings, ShoppingCart, Store, Tags, Truck, Users,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell,
+} from "lucide-react";
+import { useI18n } from "./i18n.jsx";
+
+const initialProducts = [
+  { id: 1, sku: "280699", barcode: "8435798704656", name: "我的世界钱包", category: "书包 / 钱包", supplier: "Kitty", unit: "个", boxSize: 96, cost: 2.18, price: 850, stock: 480 },
+  { id: 2, sku: "481644", barcode: "8435798707565", name: "三层我的世界大书包", category: "书包", supplier: "Kitty", unit: "个", boxSize: 12, cost: 12.2, price: 4500, stock: 480 },
+  { id: 3, sku: "480644", barcode: "8435798707534", name: "三层我的世界大书包 绿底方块", category: "书包", supplier: "Kitty", unit: "个", boxSize: 12, cost: 12.2, price: 4500, stock: 468 },
+  { id: 4, sku: "217659", barcode: "8435798704694", name: "双层笔袋 Hello Kitty", category: "文具", supplier: "K2046", unit: "个", boxSize: 24, cost: 3.08, price: 1200, stock: 480 },
+  { id: 5, sku: "224659", barcode: "8435798706704", name: "双层笔袋 库洛米", category: "文具", supplier: "K2046", unit: "个", boxSize: 24, cost: 3.08, price: 1200, stock: 1080 },
+  { id: 6, sku: "SPI36-0645", barcode: "8435631360698", name: "蜘蛛侠男童书包", category: "书包", supplier: "Kitty", unit: "个", boxSize: 36, cost: 3.9, price: 1500, stock: 11 },
+];
+
+const initialCustomers = [
+  { id: 1, name: "Szathmáry-Péter Noémi", phone: "", city: "Keszthely", address: "8360 Keszthely, Kossuth Lajos utca 13", group: "零售" },
+  { id: 2, name: "Rehuir Alga Kft. 3号店", phone: "06305708525", city: "Budapest", address: "1141 Budapest, Cinkotai út 66.", group: "批发 A" },
+  { id: 3, name: "Haghwise trade kft 1号店", phone: "06305708525", city: "Budapest", address: "1141 Budapest, Cinkotai út 66.", group: "批发 A" },
+  { id: 4, name: "Clothes 4ever kft", phone: "0670-2766668", city: "Budapest", address: "1143 Budapest, Zászlós utca 29-31.", group: "批发 B" },
+];
+
+const initialPurchases = [
+  { id: "Vin20260629-7", date: "2026-06-29 09:04", supplier: "Kitty", quantity: 4080, total: 12450, status: "待审核" },
+  { id: "Vin20260629-6", date: "2026-06-29 09:02", supplier: "K2046", quantity: 480, total: 3180, status: "已入库" },
+  { id: "Vin20260618-1", date: "2026-06-18 12:50", supplier: "Kitty", quantity: 564, total: 5612, status: "已入库" },
+];
+
+const initialSales = [
+  { id: "Vs20260713-7", date: "2026-07-13 09:12", customer: "TEMU", qty: 1, total: 1500, status: "已完成" },
+  { id: "Vs20260713-6", date: "2026-07-13 08:54", customer: "TEMU", qty: 2, total: 1700, status: "已完成" },
+  { id: "Vs20260713-5", date: "2026-07-13 08:22", customer: "Rehuir Alga Kft.", qty: 2, total: 6221, status: "已完成" },
+  { id: "Vs20260713-4", date: "2026-07-13 08:03", customer: "TEMU", qty: 1, total: 1000, status: "已完成" },
+];
+
+const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", customers: "customerList", sales: "salesList", pos: "scanSales", reports: "reports", settings: "settings" };
+
+const menu = [
+  { id: "dashboard", labelKey: "dashboard", icon: Home },
+  { labelKey: "control", icon: BarChart3, children: [{ id: "dashboard", labelKey: "operatingControl" }, { id: "purchases", labelKey: "smartPurchase" }] },
+  { labelKey: "goods", icon: Boxes, children: [{ id: "products", labelKey: "products" }, { id: "purchases", labelKey: "purchase" }, { id: "inventory", labelKey: "inventory" }, { id: "products", labelKey: "categories" }] },
+  { labelKey: "customers", icon: Users, children: [{ id: "customers", labelKey: "customerList" }, { id: "customers", labelKey: "customerAccounts" }] },
+  { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "pos", labelKey: "scanRetail" }, { id: "pos", labelKey: "scanSales" }, { id: "sales", labelKey: "returns" }] },
+  { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "reports", labelKey: "flowDetails" }, { id: "reports", labelKey: "orderFinance" }] },
+  { labelKey: "invoice", icon: FileText, children: [{ id: "sales", labelKey: "invoiceList" }, { id: "sales", labelKey: "issueInvoice" }] },
+  { id: "reports", labelKey: "reports", icon: FileBarChart },
+  { labelKey: "cloudStore", icon: Store, children: [{ id: "products", labelKey: "cloudProducts" }, { id: "settings", labelKey: "cloudSettings" }] },
+  { id: "settings", labelKey: "settings", icon: Settings },
+];
+
+const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " Ft";
+
+function Login({ onLogin }) {
+  const { t, locale, setLocale, locales } = useI18n();
+  const [username, setUsername] = useState("admin");
+  const [password, setPassword] = useState("admin123");
+  const [error, setError] = useState("");
+  const submit = (e) => {
+    e.preventDefault();
+    if (!username || !password) return setError("请输入用户名和密码");
+    onLogin(username);
+  };
+  return <div className="login-page">
+    <div className="brand-lockup"><div className="brand-mark"><Warehouse size={24}/></div><strong>{t("appName")}</strong><span>{t("tagline")}</span></div>
+    <select className="login-language" aria-label="Language" value={locale} onChange={e=>setLocale(e.target.value)}>{locales.map(l=><option key={l.code} value={l.code}>{l.label}</option>)}</select>
+    <div className="login-showcase">
+      <div className="showcase-orbit"><Database size={42}/><Boxes size={58}/><BarChart3 size={48}/><ScanLine size={40}/></div>
+      <h2>{t("loginTitle")}</h2><p>{t("loginDescription")}</p>
+    </div>
+    <form className="login-card" onSubmit={submit}>
+      <div className="login-logo"><Warehouse size={28}/></div>
+      <h1>{t("appName")}</h1><p>{t("nasEdition")}</p>
+      <label>{t("username")}<input aria-label={t("username")} value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" /></label>
+      <label>{t("password")}<input aria-label={t("password")} type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" /></label>
+      {error && <div className="form-error">{error}</div>}
+      <button className="primary login-button">{t("login")}</button>
+      <div className="login-note">{t("demoAccount")}</div>
+    </form>
+    <div className="login-footer">Private ERP · Docker Compose · Synology NAS</div>
+  </div>;
+}
+
+function Sidebar({ page, setPage, open, setOpen }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(["goods", "sales"]);
+  const toggle = (label) => setExpanded(v => v.includes(label) ? v.filter(x=>x!==label) : [...v, label]);
+  return <aside className={`sidebar ${open ? "open" : ""}`}>
+    <div className="side-brand"><Warehouse size={22}/><span>{t("appName")}</span></div>
+    <nav>{menu.map((item, i) => {
+      const Icon = item.icon;
+      if (!item.children) return <button key={i} className={`nav-item ${page===item.id?"active":""}`} onClick={()=>{setPage(item.id);setOpen(false)}}><Icon size={17}/><span>{t(item.labelKey)}</span></button>;
+      const isOpen = expanded.includes(item.labelKey);
+      return <div className="nav-group" key={i}>
+        <button className="nav-item" onClick={()=>toggle(item.labelKey)}><Icon size={17}/><span>{t(item.labelKey)}</span><ChevronDown className={isOpen?"rotated":""} size={14}/></button>
+        {isOpen && <div className="subnav">{item.children.map((child,j)=><button key={j} className={page===child.id?"active":""} onClick={()=>{setPage(child.id);setOpen(false)}}>{t(child.labelKey)}</button>)}</div>}
+      </div>;
+    })}</nav>
+    <div className="exchange">EUR/HUF: 357.351<br/>USD/HUF: 313.465</div>
+  </aside>;
+}
+
+function Header({ page, user, onLogout, toggleMenu }) {
+  const { t, locale, setLocale, locales } = useI18n();
+  return <><header className="header"><button className="icon-btn menu-btn" onClick={toggleMenu}><Menu size={23}/></button><b>{t(pageNames[page])}</b><div className="header-spacer"/><span className="date">2026-07-13 09:24</span><select className="language-select" aria-label="Language" value={locale} onChange={e=>setLocale(e.target.value)}>{locales.map(l=><option key={l.code} value={l.code}>{l.label}</option>)}</select><button className="icon-btn"><Bell size={19}/><i>1</i></button><div className="user-chip">{user}<ChevronDown size={13}/></div><button title={t("logout")} className="icon-btn" onClick={onLogout}><LogOut size={18}/></button></header><div className="tabs"><span>{t("dashboard")}</span><span className="active">● {t(pageNames[page])} ×</span></div></>;
+}
+
+function Stat({ icon: Icon, color, label, value, suffix }) { return <div className="stat-card"><div className="stat-icon" style={{color,background:`${color}18`}}><Icon size={31}/></div><div><small>{label}</small><strong>{value}</strong><span>{suffix}</span></div></div>; }
+
+function Dashboard({ products, customers, sales, setPage }) {
+  const stock = products.reduce((s,p)=>s+p.stock,0), revenue=sales.reduce((s,x)=>s+x.total,0);
+  return <div className="page-content">
+    <div className="smart-actions"><button className="outline danger">智能采购 推荐进货: 51</button><button className="outline success">推荐供货商</button><button className="outline" onClick={()=>setPage("reports")}>新老板视图</button></div>
+    <div className="stats-grid"><Stat icon={Boxes} color="#26b99a" label="货物" value={products.length} suffix="种商品"/><Stat icon={ShoppingCart} color="#3f9fea" label="今日销售" value={money(revenue)} suffix={`${sales.length} 笔订单`}/><Stat icon={CircleDollarSign} color="#f05a78" label="库存成本" value={money(products.reduce((s,p)=>s+p.stock*p.cost*390,0))} suffix={`${stock} 件库存`}/><Stat icon={Users} color="#42c7c7" label="客户" value={customers.length} suffix="活跃客户"/></div>
+    <div className="quick-row"><button onClick={()=>setPage("purchases")}><ArrowDownToLine/>新品入库</button><button onClick={()=>setPage("pos")}><ScanLine/>扫码销售</button><button onClick={()=>setPage("reports")}><WalletCards/>财务</button><button onClick={()=>setPage("reports")}><BarChart3/>销售报表</button></div>
+    <div className="dashboard-grid"><section className="panel chart-panel"><div className="panel-title">近 7 日销售趋势</div><div className="bar-chart">{[42,58,37,72,66,89,76].map((h,i)=><div key={i}><span style={{height:`${h}%`}}></span><small>{i+7}日</small></div>)}</div></section><section className="panel"><div className="panel-title">最近销售</div><CompactTable rows={sales.slice(0,6)} columns={["id","qty","total","customer"]}/></section></div>
+    <div className="rank-grid">{[
+      ["7天热销数量",products.slice(0,3)],["7天热销金额",products.slice(1,4)],["7天热销利润",products.slice(2,5)],["7天库存预警",products.filter(p=>p.stock<100)]
+    ].map(([title,items])=><section className="rank-card" key={title}><div className="panel-title">{title}<ChevronDown size={15}/></div>{items.map((p,i)=><div className="rank-line" key={p.id}><b>{i+1}</b><span>{p.sku} {p.name}</span><em>{p.stock}</em></div>)}</section>)}</div>
+  </div>;
+}
+
+function Toolbar({ search, setSearch, onAdd, placeholder="搜索货号、条码或名称" }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)}/></div><select><option>{t("select")}</option><option>{t("all")}</option></select><button className="primary"><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline"><RefreshCw size={16}/>{t("refresh")}</button><button className="primary" onClick={onAdd}><Plus size={16}/>{t("add")}</button></div>; }
+
+function DataTable({ columns, rows, renderCell }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title="详情"><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
+function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c]):r[c]}</span>)}</div>)}</div>; }
+
+function Products({ products, setProducts, inventoryOnly=false }) {
+  const [search,setSearch]=useState(""), [modal,setModal]=useState(false);
+  const filtered=products.filter(p=>`${p.sku}${p.barcode}${p.name}${p.category}`.toLowerCase().includes(search.toLowerCase()));
+  const add=(data)=>{setProducts(v=>[...v,{id:Date.now(),stock:0,cost:0,price:0,boxSize:1,unit:"个",supplier:"未指定",...data}]);setModal(false)};
+  const columns=inventoryOnly?[
+    {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
+  ]:[{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:"单价"},{key:"boxSize",label:"/箱装数"},{key:"price",label:"第二货币价格"},{key:"stock",label:"入库统计"}];
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)}/><div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
+}
+
+function ProductModal({onClose,onSave}) { const [form,setForm]=useState({sku:"",barcode:"",name:"",category:""}); return <Modal title="新增产品" onClose={onClose}><div className="form-grid">{Object.entries({sku:"货号",barcode:"条码",name:"产品名称",category:"分类"}).map(([k,l])=><label key={k}>{l}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div><div className="modal-actions"><button className="outline" onClick={onClose}>取消</button><button className="primary" onClick={()=>form.sku&&form.name&&onSave(form)}>保存</button></div></Modal>; }
+
+function Purchases({ purchases, setPurchases }) {
+  const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
+  const add=()=>{setPurchases(v=>[{id:`Vin${Date.now().toString().slice(-7)}`,date:"2026-07-13 09:30",supplier:"Kitty",quantity:120,total:3480,status:"待审核"},...v]);setModal(false)};
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} placeholder="搜索入库单号或供货商"/><DataTable rows={purchases.filter(x=>`${x.id}${x.supplier}`.toLowerCase().includes(search.toLowerCase()))} columns={[{key:"id",label:"入库单号"},{key:"date",label:"建单时间"},{key:"supplier",label:"供货商"},{key:"quantity",label:"总数"},{key:"total",label:"采购总价"},{key:"status",label:"审核"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已入库"?"done":"pending"}`}>{r.status}</span>:r[c.key]}/>{modal&&<Modal title="新建采购入库单" onClose={()=>setModal(false)}><div className="form-grid"><label>供货商<select><option>Kitty</option><option>K2046</option></select></label><label>入库仓库<select><option>主仓库</option><option>门店仓</option></select></label><label>备注<input placeholder="采购备注"/></label></div><div className="modal-actions"><button className="outline" onClick={()=>setModal(false)}>取消</button><button className="primary" onClick={add}>创建采购单</button></div></Modal>}</Page>;
+}
+
+function Customers({ customers,setCustomers }) {
+  const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} placeholder="搜索客户名、电话或城市"/><div className="filter-strip"><span className="selected">全部</span><span>30天</span><span>60天</span><span>90天</span></div><DataTable rows={customers.filter(c=>`${c.name}${c.phone}${c.city}`.toLowerCase().includes(search.toLowerCase()))} columns={[{key:"name",label:"客户名"},{key:"phone",label:"电话"},{key:"address",label:"地址"},{key:"city",label:"城市"},{key:"group",label:"分组"}]}/>{modal&&<CustomerModal onClose={()=>setModal(false)} onSave={c=>{setCustomers(v=>[...v,{id:Date.now(),...c}]);setModal(false)}}/>}</Page>;
+}
+function CustomerModal({onClose,onSave}) { const [form,setForm]=useState({name:"",phone:"",city:"",address:"",group:"零售"});return <Modal title="新增客户" onClose={onClose}><div className="form-grid">{["name","phone","city","address"].map(k=><label key={k}>{({name:"客户名称",phone:"电话",city:"城市",address:"地址"})[k]}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div><div className="modal-actions"><button className="outline" onClick={onClose}>取消</button><button className="primary" onClick={()=>form.name&&onSave(form)}>保存</button></div></Modal>;}
+
+function Sales({sales}) { const [search,setSearch]=useState("");return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>{}} placeholder="搜索销售单号或客户"/><DataTable rows={sales.filter(s=>`${s.id}${s.customer}`.toLowerCase().includes(search.toLowerCase()))} columns={[{key:"id",label:"销售单号"},{key:"date",label:"订单日期"},{key:"customer",label:"客户"},{key:"qty",label:"总数"},{key:"total",label:"总价"},{key:"status",label:"状态"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className="status done">{r.status}</span>:r[c.key]}/></Page>; }
+
+function POS({products,customers,setProducts,setSales}) {
+  const [query,setQuery]=useState(""),[cart,setCart]=useState([]),[customer,setCustomer]=useState(customers[0]?.name||"散客"),[toast,setToast]=useState("");
+  const addProduct=(p)=>setCart(v=>{const found=v.find(x=>x.id===p.id);return found?v.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x):[...v,{...p,qty:1}]});
+  const scan=(e)=>{e.preventDefault();const p=products.find(p=>p.barcode===query||p.sku===query)||products.find(p=>p.name.includes(query));if(p)addProduct(p);setQuery("")};
+  const total=cart.reduce((s,p)=>s+p.price*p.qty,0);
+  const save=()=>{if(!cart.length)return;setProducts(v=>v.map(p=>{const line=cart.find(x=>x.id===p.id);return line?{...p,stock:p.stock-line.qty}:p}));setSales(v=>[{id:`Vs${Date.now().toString().slice(-8)}`,date:"2026-07-13 09:30",customer,qty:cart.reduce((s,x)=>s+x.qty,0),total,status:"已完成"},...v]);setCart([]);setToast("订单已保存，库存已同步扣减");setTimeout(()=>setToast(""),2200)};
+  return <div className="pos-page"><div className="pos-main"><form className="scan-bar" onSubmit={scan}><select><option>× 1 / 个 / Ft</option></select><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="请扫描条码、输入货号或商品名"/><button className="outline">新品(F9)</button></form><div className="product-picks">{products.slice(0,5).map(p=><button key={p.id} onClick={()=>addProduct(p)}><Package size={17}/>{p.sku}<small>{p.name}</small></button>)}</div><div className="table-wrap cart-table"><table><thead><tr><th>货号</th><th>产品</th><th>库存</th><th>原价</th><th>数量</th><th>售价</th><th></th></tr></thead><tbody>{cart.map(p=><tr key={p.id}><td>{p.sku}</td><td>{p.name}</td><td>{p.stock}</td><td>{money(p.price)}</td><td><div className="qty"><button onClick={()=>setCart(v=>v.map(x=>x.id===p.id?{...x,qty:Math.max(1,x.qty-1)}:x))}>−</button>{p.qty}<button onClick={()=>setCart(v=>v.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x))}>+</button></div></td><td>{money(p.price*p.qty)}</td><td><button className="icon-btn" onClick={()=>setCart(v=>v.filter(x=>x.id!==p.id))}><X size={16}/></button></td></tr>)}</tbody></table>{!cart.length&&<div className="empty">扫描或选择商品后会出现在这里</div>}</div></div><aside className="checkout"><div className="checkout-total"><span>合计</span><b>{money(total)}</b></div><label>客户<select value={customer} onChange={e=>setCustomer(e.target.value)}>{customers.map(c=><option key={c.id}>{c.name}</option>)}</select></label><button className="danger-soft" onClick={()=>setCart([])}>清空</button><button className="save-order" disabled={!cart.length} onClick={save}><Check size={18}/>保存订单</button></aside>{toast&&<div className="toast"><Check size={17}/>{toast}</div>}</div>;
+}
+
+function Reports({products,sales,purchases}) { const revenue=sales.reduce((s,x)=>s+x.total,0), purchase=purchases.reduce((s,x)=>s+x.total,0);return <Page><div className="report-summary"><Stat icon={ShoppingCart} color="#3f9fea" label="销售额" value={money(revenue)} suffix="本期"/><Stat icon={Truck} color="#26b99a" label="采购额" value={money(purchase)} suffix="本期"/><Stat icon={Warehouse} color="#f6a43a" label="库存" value={products.reduce((s,p)=>s+p.stock,0)} suffix="件"/><Stat icon={CircleDollarSign} color="#f05a78" label="预估毛利" value={money(revenue*.31)} suffix="31%"/></div><section className="panel reports-panel"><h2>报表</h2>{[["货物",["入库报表","采购价格变动","库存报表","调拨分析报表","库存盘点报表","进销存报表"]],["客户",["客户报表","客户账目分析"]],["销售",["销售报表","销售分析","销售趋势图","客单价报表","销售饼状图","利润报表"]],["财务",["财务流水报表","还款报表","日结单","月结单","业绩报表"]]].map(([g,items])=><div className="report-group" key={g}><h3>{g}</h3><div>{items.map((x,i)=><button key={x}><FileBarChart size={18} color={["#3f9fea","#f6a43a","#26b99a"][i%3]}/>{x}</button>)}</div></div>)}</section></Page>; }
+
+function SettingsPage() {return <Page><section className="panel settings-panel"><h2>系统设置</h2><div className="settings-grid">{[[Store,"基础信息","企业名称、货币与语言"],[Warehouse,"仓库管理","多仓库与门店库存"],[Truck,"供货商","采购供货商资料"],[Users,"员工管理","角色与数据权限"],[Tags,"各种选项","分类、单位与价格规则"],[Database,"系统日志","审计、备份与恢复"]].map(([I,t,d])=><button key={t}><I/><span><b>{t}</b><small>{d}</small></span><ChevronDown/></button>)}</div></section></Page>}
+
+function Page({children}) {return <div className="page-content">{children}</div>}
+function Modal({title,onClose,children}) {return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="modal"><div className="modal-head"><b>{title}</b><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
+
+export function App() {
+  const [user,setUser]=useState(()=>localStorage.getItem("erp-user"));
+  const [page,setPage]=useState("dashboard"),[menuOpen,setMenuOpen]=useState(false);
+  const [products,setProducts]=useState(initialProducts),[customers,setCustomers]=useState(initialCustomers),[purchases,setPurchases]=useState(initialPurchases),[sales,setSales]=useState(initialSales);
+  useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
+  const login=(name)=>{localStorage.setItem("erp-user",name);setUser(name)};
+  const logout=()=>{localStorage.removeItem("erp-user");setUser(null)};
+  const content=useMemo(()=>({
+    dashboard:<Dashboard products={products} customers={customers} sales={sales} setPage={setPage}/>,
+    products:<Products products={products} setProducts={setProducts}/>,
+    purchases:<Purchases purchases={purchases} setPurchases={setPurchases}/>,
+    inventory:<Products products={products} setProducts={setProducts} inventoryOnly/>,
+    customers:<Customers customers={customers} setCustomers={setCustomers}/>,
+    sales:<Sales sales={sales}/>,pos:<POS products={products} customers={customers} setProducts={setProducts} setSales={setSales}/>,
+    reports:<Reports products={products} sales={sales} purchases={purchases}/>,settings:<SettingsPage/>
+  })[page],[page,products,customers,purchases,sales]);
+  if(!user)return <Login onLogin={login}/>;
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={user} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
+}

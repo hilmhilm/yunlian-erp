@@ -1,0 +1,21 @@
+.language-select,
+.login-language {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid #d6dfe6;
+  border-radius: 3px;
+  background: #fff;
+  color: #475764;
+}
+
+.login-language {
+  position: absolute;
+  z-index: 2;
+  top: 24px;
+  right: 28px;
+}
+
+@media (max-width: 720px) {
+  .language-select { max-width: 92px; }
+  .login-language { top: 24px; right: 18px; }
+}

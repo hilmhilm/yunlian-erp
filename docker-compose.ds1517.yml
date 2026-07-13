@@ -1,0 +1,62 @@
+version: "2.4"
+
+services:
+  db:
+    image: postgres:16-alpine
+    platform: linux/amd64
+    container_name: yunlian-erp-db
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-erp}
+      POSTGRES_USER: ${POSTGRES_USER:-erp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./db/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-erp} -d ${POSTGRES_DB:-erp}"]
+      start_period: 60s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [erp-internal]
+
+  api:
+    build: ./server
+    platform: linux/amd64
+    container_name: yunlian-erp-api
+    restart: unless-stopped
+    mem_limit: 256m
+    environment:
+      PORT: 3000
+      NODE_ENV: production
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: ${POSTGRES_USER:-erp}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-erp}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [erp-internal]
+
+  web:
+    build: ./web
+    platform: linux/amd64
+    container_name: yunlian-erp-web
+    restart: unless-stopped
+    mem_limit: 96m
+    ports:
+      - "${WEB_PORT:-8088}:80"
+    depends_on:
+      - api
+    networks: [erp-internal]
+
+networks:
+  erp-internal:
+    driver: bridge

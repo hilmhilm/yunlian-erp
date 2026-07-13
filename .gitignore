@@ -1,0 +1,30 @@
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime and production data
+data/
+backups/
+*.sql.gz
+*.dump
+
+# Dependencies and build output
+node_modules/
+**/node_modules/
+web/dist/
+web/.npm-cache/
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Reference captures may contain private business/customer information
+source-captures/
+
+# Local deployment archives
+*.tar.gz
+*.tgz
+*.zip
