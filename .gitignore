@@ -11,6 +11,7 @@ backups/
 
 # Dependencies and build output
 node_modules/
+.pnpm-store/
 **/node_modules/
 web/dist/
 web/.npm-cache/

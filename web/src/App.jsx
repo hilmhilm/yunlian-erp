@@ -6,15 +6,10 @@ import {
   Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
-
-const initialProducts = [
-  { id: 1, sku: "280699", barcode: "8435798704656", name: "我的世界钱包", category: "书包 / 钱包", supplier: "Kitty", unit: "个", boxSize: 96, cost: 2.18, price: 850, stock: 480 },
-  { id: 2, sku: "481644", barcode: "8435798707565", name: "三层我的世界大书包", category: "书包", supplier: "Kitty", unit: "个", boxSize: 12, cost: 12.2, price: 4500, stock: 480 },
-  { id: 3, sku: "480644", barcode: "8435798707534", name: "三层我的世界大书包 绿底方块", category: "书包", supplier: "Kitty", unit: "个", boxSize: 12, cost: 12.2, price: 4500, stock: 468 },
-  { id: 4, sku: "217659", barcode: "8435798704694", name: "双层笔袋 Hello Kitty", category: "文具", supplier: "K2046", unit: "个", boxSize: 24, cost: 3.08, price: 1200, stock: 480 },
-  { id: 5, sku: "224659", barcode: "8435798706704", name: "双层笔袋 库洛米", category: "文具", supplier: "K2046", unit: "个", boxSize: 24, cost: 3.08, price: 1200, stock: 1080 },
-  { id: 6, sku: "SPI36-0645", barcode: "8435631360698", name: "蜘蛛侠男童书包", category: "书包", supplier: "Kitty", unit: "个", boxSize: 36, cost: 3.9, price: 1500, stock: 11 },
-];
+import {
+  ApiError, clearStoredSession, createProduct as createProductRequest,
+  fetchProducts, getStoredSession, login as loginRequest, storeSession,
+} from "./api.js";
 
 const initialCustomers = [
   { id: 1, name: "Szathmáry-Péter Noémi", phone: "", city: "Keszthely", address: "8360 Keszthely, Kossuth Lajos utca 13", group: "零售" },
@@ -56,12 +51,21 @@ const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " F
 function Login({ onLogin }) {
   const { t, locale, setLocale, locales } = useI18n();
   const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("admin123");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const submit = (e) => {
+  const [submitting, setSubmitting] = useState(false);
+  const submit = async (e) => {
     e.preventDefault();
-    if (!username || !password) return setError("请输入用户名和密码");
-    onLogin(username);
+    if (!username || !password) return setError(t("loginRequired"));
+    setError("");
+    setSubmitting(true);
+    try {
+      await onLogin(username, password);
+    } catch (requestError) {
+      setError(requestError instanceof ApiError && requestError.status === 401 ? t("invalidCredentials") : t("loginFailed"));
+    } finally {
+      setSubmitting(false);
+    }
   };
   return <div className="login-page">
     <div className="brand-lockup"><div className="brand-mark"><Warehouse size={24}/></div><strong>{t("appName")}</strong><span>{t("tagline")}</span></div>
@@ -76,8 +80,8 @@ function Login({ onLogin }) {
       <label>{t("username")}<input aria-label={t("username")} value={username} onChange={e=>setUsername(e.target.value)} autoComplete="username" /></label>
       <label>{t("password")}<input aria-label={t("password")} type="password" value={password} onChange={e=>setPassword(e.target.value)} autoComplete="current-password" /></label>
       {error && <div className="form-error">{error}</div>}
-      <button className="primary login-button">{t("login")}</button>
-      <div className="login-note">{t("demoAccount")}</div>
+      <button className="primary login-button" disabled={submitting}>{submitting ? t("signingIn") : t("login")}</button>
+      <div className="login-note">{t("secureLoginNote")}</div>
     </form>
     <div className="login-footer">Private ERP · Docker Compose · Synology NAS</div>
   </div>;
@@ -122,22 +126,23 @@ function Dashboard({ products, customers, sales, setPage }) {
   </div>;
 }
 
-function Toolbar({ search, setSearch, onAdd, placeholder="搜索货号、条码或名称" }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)}/></div><select><option>{t("select")}</option><option>{t("all")}</option></select><button className="primary"><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline"><RefreshCw size={16}/>{t("refresh")}</button><button className="primary" onClick={onAdd}><Plus size={16}/>{t("add")}</button></div>; }
+function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, placeholder="搜索货号、条码或名称" }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onSearch?.()}/></div><select><option>{t("select")}</option><option>{t("all")}</option></select><button className="primary" onClick={onSearch} disabled={busy}><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>{t("refresh")}</button><button className="primary" onClick={onAdd} disabled={busy}><Plus size={16}/>{t("add")}</button></div>; }
 
 function DataTable({ columns, rows, renderCell }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title="详情"><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c]):r[c]}</span>)}</div>)}</div>; }
 
-function Products({ products, setProducts, inventoryOnly=false }) {
+function Products({ products, onCreate, onLoad, loading=false, error="", inventoryOnly=false }) {
+  const { t } = useI18n();
   const [search,setSearch]=useState(""), [modal,setModal]=useState(false);
   const filtered=products.filter(p=>`${p.sku}${p.barcode}${p.name}${p.category}`.toLowerCase().includes(search.toLowerCase()));
-  const add=(data)=>{setProducts(v=>[...v,{id:Date.now(),stock:0,cost:0,price:0,boxSize:1,unit:"个",supplier:"未指定",...data}]);setModal(false)};
+  const add=async(data)=>{await onCreate(data);setModal(false)};
   const columns=inventoryOnly?[
     {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
   ]:[{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:"单价"},{key:"boxSize",label:"/箱装数"},{key:"price",label:"第二货币价格"},{key:"stock",label:"入库统计"}];
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)}/><div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={()=>setModal(true)} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
 }
 
-function ProductModal({onClose,onSave}) { const [form,setForm]=useState({sku:"",barcode:"",name:"",category:""}); return <Modal title="新增产品" onClose={onClose}><div className="form-grid">{Object.entries({sku:"货号",barcode:"条码",name:"产品名称",category:"分类"}).map(([k,l])=><label key={k}>{l}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div><div className="modal-actions"><button className="outline" onClick={onClose}>取消</button><button className="primary" onClick={()=>form.sku&&form.name&&onSave(form)}>保存</button></div></Modal>; }
+function ProductModal({onClose,onSave}) { const {t}=useI18n(); const [form,setForm]=useState({sku:"",barcode:"",name:"",category:""}); const [error,setError]=useState(""); const [saving,setSaving]=useState(false); const save=async()=>{if(!form.sku||!form.name)return setError(t("requiredProductFields"));setError("");setSaving(true);try{await onSave(form)}catch(e){setError(`${t("productCreateFailed")}：${e.message}`)}finally{setSaving(false)}}; return <Modal title={t("newProduct")} onClose={onClose}><div className="form-grid">{Object.entries({sku:"货号",barcode:"条码",name:"产品名称",category:"分类"}).map(([k,l])=><label key={k}>{l}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>; }
 
 function Purchases({ purchases, setPurchases }) {
   const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
@@ -170,21 +175,25 @@ function Page({children}) {return <div className="page-content">{children}</div>
 function Modal({title,onClose,children}) {return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="modal"><div className="modal-head"><b>{title}</b><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
 
 export function App() {
-  const [user,setUser]=useState(()=>localStorage.getItem("erp-user"));
+  const [session,setSession]=useState(getStoredSession);
   const [page,setPage]=useState("dashboard"),[menuOpen,setMenuOpen]=useState(false);
-  const [products,setProducts]=useState(initialProducts),[customers,setCustomers]=useState(initialCustomers),[purchases,setPurchases]=useState(initialPurchases),[sales,setSales]=useState(initialSales);
+  const [products,setProducts]=useState([]),[customers,setCustomers]=useState(initialCustomers),[purchases,setPurchases]=useState(initialPurchases),[sales,setSales]=useState(initialSales);
+  const [productsLoading,setProductsLoading]=useState(false),[productsError,setProductsError]=useState("");
   useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
-  const login=(name)=>{localStorage.setItem("erp-user",name);setUser(name)};
-  const logout=()=>{localStorage.removeItem("erp-user");setUser(null)};
+  const logout=()=>{clearStoredSession();setSession(null);setProducts([])};
+  const loadProducts=async(search="")=>{if(!session?.token)return;setProductsLoading(true);setProductsError("");try{setProducts(await fetchProducts(session.token,search))}catch(error){if(error instanceof ApiError&&error.status===401){logout();return}setProductsError(error.message)}finally{setProductsLoading(false)}};
+  useEffect(()=>{if(session?.token)loadProducts()},[session?.token]);
+  const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
+  const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current])};
   const content=useMemo(()=>({
     dashboard:<Dashboard products={products} customers={customers} sales={sales} setPage={setPage}/>,
-    products:<Products products={products} setProducts={setProducts}/>,
+    products:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={productsLoading} error={productsError}/>,
     purchases:<Purchases purchases={purchases} setPurchases={setPurchases}/>,
-    inventory:<Products products={products} setProducts={setProducts} inventoryOnly/>,
+    inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={productsLoading} error={productsError} inventoryOnly/>,
     customers:<Customers customers={customers} setCustomers={setCustomers}/>,
     sales:<Sales sales={sales}/>,pos:<POS products={products} customers={customers} setProducts={setProducts} setSales={setSales}/>,
     reports:<Reports products={products} sales={sales} purchases={purchases}/>,settings:<SettingsPage/>
-  })[page],[page,products,customers,purchases,sales]);
-  if(!user)return <Login onLogin={login}/>;
-  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={user} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
+  })[page],[page,products,customers,purchases,sales,productsLoading,productsError,session?.token]);
+  if(!session)return <Login onLogin={login}/>;
+  return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
 }
