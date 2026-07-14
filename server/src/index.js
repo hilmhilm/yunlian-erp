@@ -8,6 +8,7 @@ import { runMigrations } from "./migrate.js";
 const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3000);
+const businessTimezone = process.env.BUSINESS_TIMEZONE || "Europe/Budapest";
 const secret = process.env.JWT_SECRET;
 if (!secret || secret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
 const pool = new Pool(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {
@@ -196,7 +197,21 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select s.*,c.name customer,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id group by s.id,c.name order by s.created_at desc limit 500")).rows)));
+app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+  const startDate=String(req.query.startDate||"");
+  const endDate=String(req.query.endDate||"");
+  const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+  const validDate=value=>datePattern.test(value)&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
+  if((startDate&&!validDate(startDate))||(endDate&&!validDate(endDate)))return res.status(400).json({error:"invalid date range"});
+  if(startDate&&endDate&&startDate>endDate)return res.status(400).json({error:"start date must not be after end date"});
+  const params=startDate||endDate?[businessTimezone]:[],filters=[];
+  if(startDate){params.push(startDate);filters.push(`s.created_at >= ($${params.length}::date at time zone $1)`)}
+  if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
+  const where=filters.length?` where ${filters.join(" and ")}`:"";
+  const limit=filters.length?"":" limit 500";
+  const result=await pool.query(`select s.*,c.name customer,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id${where} group by s.id,c.name order by s.created_at desc${limit}`,params);
+  res.json(result.rows);
+}));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
   const sale=await pool.query("select s.*,c.name customer,coalesce((select sum(sr.total) from sale_returns sr where sr.sale_id=s.id),0) returned_total from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});

@@ -28,6 +28,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?请在 .env 中设置会话密钥}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 中设置管理员密码}
+      BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Europe/Budapest}
     depends_on:
       db: { condition: service_healthy }
     networks: [erp-internal]

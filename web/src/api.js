@@ -146,8 +146,13 @@ export async function createPurchase(token, purchase) {
   }));
 }
 
-export async function fetchSales(token) {
-  return (await request("/sales", { token })).map(normalizeSale);
+export async function fetchSales(token, { startDate = "", endDate = "" } = {}) {
+  const query = new URLSearchParams();
+  if (startDate) query.set("startDate", startDate);
+  if (endDate) query.set("endDate", endDate);
+  const encoded = query.toString();
+  const suffix = encoded ? `?${encoded}` : "";
+  return (await request(`/sales${suffix}`, { token })).map(normalizeSale);
 }
 
 export async function createSale(token, sale) {
