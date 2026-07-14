@@ -39,6 +39,7 @@ const menu = [
 ];
 
 const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " Ft";
+const uiVersion = "2026.07.14-1";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -96,7 +97,7 @@ function Sidebar({ page, setPage, open, setOpen, role }) {
         {isOpen && <div className="subnav">{item.children.map((child,j)=><button key={j} className={page===child.id?"active":""} onClick={()=>{setPage(child.id);setOpen(false)}}>{t(child.labelKey)}</button>)}</div>}
       </div>;
     })}</nav>
-    <div className="exchange">EUR/HUF: 357.351<br/>USD/HUF: 313.465</div>
+    <div className="exchange">EUR/HUF: 357.351<br/>USD/HUF: 313.465<br/>UI {uiVersion}</div>
   </aside>;
 }
 
