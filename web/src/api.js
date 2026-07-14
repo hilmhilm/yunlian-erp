@@ -57,6 +57,16 @@ const normalizeProduct = (product) => ({
   cost: Number(product.cost || 0),
   price: Number(product.price || 0),
   stock: Number(product.stock || 0),
+  createdAt: product.created_at ?? product.createdAt ?? null,
+  updatedAt: product.updated_at ?? product.updatedAt ?? null,
+  movements: (product.movements || []).map(movement => ({
+    ...movement,
+    quantity: Number(movement.quantity || 0),
+    movementType: movement.movement_type,
+    referenceNo: movement.reference_no,
+    createdBy: movement.created_by,
+    date: formatDate(movement.created_at),
+  })),
 });
 
 const formatDate = (value) => value ? new Date(value).toLocaleString([], {
@@ -120,6 +130,18 @@ export async function createProduct(token, product) {
     body: JSON.stringify(product),
   });
   return normalizeProduct(created);
+}
+
+export async function fetchProduct(token, id) {
+  return normalizeProduct(await request(`/products/${id}`, { token }));
+}
+
+export async function updateProduct(token, id, product) {
+  return normalizeProduct(await request(`/products/${id}`, {
+    token,
+    method: "PATCH",
+    body: JSON.stringify(product),
+  }));
 }
 
 export async function fetchCustomers(token, search = "") {

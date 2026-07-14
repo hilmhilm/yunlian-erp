@@ -145,14 +145,24 @@ app.get("/api/products", asyncRoute(async (req, res) => {
   const result = await pool.query("select * from products where sku ilike $1 or barcode ilike $1 or name ilike $1 order by id desc limit 500", [q]);
   res.json(result.rows);
 }));
+app.get("/api/products/:id", asyncRoute(async (req,res)=>{
+  const product=await pool.query("select * from products where id=$1",[req.params.id]);
+  if(!product.rowCount)return res.status(404).json({error:"product not found"});
+  const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
+  res.json({...product.rows[0],movements:movements.rows});
+}));
 app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
-  const b = req.body;
-  const result = await pool.query("insert into products(sku,barcode,name,category,supplier,unit,box_size,cost,price,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *", [b.sku,b.barcode,b.name,b.category,b.supplier||"",b.unit||"个",b.boxSize||1,b.cost||0,b.price||0,b.stock||0]);
+  const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),price=Number(b.price??0);
+  if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||!Number.isFinite(cost)||cost<0||!Number.isFinite(price)||price<0)return res.status(400).json({error:"invalid product data"});
+  const result = await pool.query("insert into products(sku,barcode,name,category,supplier,unit,box_size,cost,price,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0) returning *", [sku,String(b.barcode||"").trim(),name,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,price]);
   res.status(201).json(result.rows[0]);
 }));
 app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
-  const b=req.body;
-  const result=await pool.query("update products set name=coalesce($1,name),category=coalesce($2,category),supplier=coalesce($3,supplier),cost=coalesce($4,cost),price=coalesce($5,price),updated_at=now() where id=$6 returning *",[b.name,b.category,b.supplier,b.cost,b.price,req.params.id]);
+  const b=req.body||{};
+  const sku=b.sku===undefined?null:String(b.sku).trim(),name=b.name===undefined?null:String(b.name).trim(),unit=b.unit===undefined?null:String(b.unit).trim(),boxSize=b.boxSize===undefined?null:Number(b.boxSize),cost=b.cost===undefined?null:Number(b.cost),price=b.price===undefined?null:Number(b.price);
+  if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||(cost!==null&&(!Number.isFinite(cost)||cost<0))||(price!==null&&(!Number.isFinite(price)||price<0)))return res.status(400).json({error:"invalid product data"});
+  const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),category=coalesce($4,category),supplier=coalesce($5,supplier),unit=coalesce($6,unit),box_size=coalesce($7,box_size),cost=coalesce($8,cost),price=coalesce($9,price),updated_at=now() where id=$10 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,price,req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"product not found"});
   res.json(result.rows[0]);
 }));
 app.get("/api/i18n/locales", asyncRoute(async (_req,res)=>{

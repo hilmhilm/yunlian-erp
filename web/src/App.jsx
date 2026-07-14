@@ -9,9 +9,9 @@ import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest,
   createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
-  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProducts, fetchSale,
+  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProducts, fetchSale,
   fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
-  login as loginRequest, storeSession, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
+  login as loginRequest, storeSession, updateProduct as updateProductRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
 const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanRetail: "scanRetail", scanSales: "scanSales", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
@@ -41,7 +41,7 @@ const menu = [
 const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " Ft";
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.14-4";
+const uiVersion = "2026.07.14-5";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -125,21 +125,37 @@ function Dashboard({ products, customers, sales, summary, setPage }) {
 
 function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, placeholder="搜索货号、条码或名称" }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onSearch?.()}/></div><select><option>{t("select")}</option><option>{t("all")}</option></select><button className="primary" onClick={onSearch} disabled={busy}><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>{t("refresh")}</button>{onAdd&&<button className="primary" onClick={onAdd} disabled={busy}><Plus size={16}/>{t("add")}</button>}</div>; }
 
-function DataTable({ columns, rows, renderCell, onDetail }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title={t("details")} onClick={()=>onDetail?.(row)}><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
+function DataTable({ columns, rows, renderCell, onEdit, onDetail }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions">{onEdit&&<button title={t("edit")} onClick={()=>onEdit(row)}><Pencil size={16}/></button>}{onDetail&&<button title={t("details")} onClick={()=>onDetail(row)}><ClipboardList size={16}/></button>}</div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c]):r[c]}</span>)}</div>)}</div>; }
 
-function Products({ products, onCreate, onLoad, loading=false, error="", inventoryOnly=false, canCreate=true }) {
+function Products({ products, onCreate, onUpdate, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true }) {
   const { t } = useI18n();
-  const [search,setSearch]=useState(""), [modal,setModal]=useState(false);
+  const [search,setSearch]=useState(""),[editor,setEditor]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
   const filtered=products.filter(p=>`${p.sku}${p.barcode}${p.name}${p.category}`.toLowerCase().includes(search.toLowerCase()));
-  const add=async(data)=>{await onCreate(data);setModal(false)};
+  const save=async(data)=>{if(editor?.id)await onUpdate(editor.id,data);else await onCreate(data);setEditor(null)};
+  const openDetail=async product=>{setDetail({id:product.id,sku:product.sku,name:product.name});setDetailLoading(true);setDetailError("");try{setDetail(await onLoadDetail(product.id))}catch(e){setDetailError(e.message)}finally{setDetailLoading(false)}};
   const columns=inventoryOnly?[
     {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
   ]:[{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:"单价"},{key:"boxSize",label:"/箱装数"},{key:"price",label:"第二货币价格"},{key:"stock",label:"入库统计"}];
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]}/>{modal&&<ProductModal onClose={()=>setModal(false)} onSave={add}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setEditor({}):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?`${r.cost.toFixed(2)} €`:c.key==="price"?money(r.price):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]} onEdit={canEdit&&!inventoryOnly?setEditor:undefined} onDetail={openDetail}/>{editor&&<ProductModal product={editor.id?editor:null} onClose={()=>setEditor(null)} onSave={save}/>} {detail&&<ProductDetailModal product={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</Page>;
 }
 
-function ProductModal({onClose,onSave}) { const {t}=useI18n(); const [form,setForm]=useState({sku:"",barcode:"",name:"",category:""}); const [error,setError]=useState(""); const [saving,setSaving]=useState(false); const save=async()=>{if(!form.sku||!form.name)return setError(t("requiredProductFields"));setError("");setSaving(true);try{await onSave(form)}catch(e){setError(`${t("productCreateFailed")}：${e.message}`)}finally{setSaving(false)}}; return <Modal title={t("newProduct")} onClose={onClose}><div className="form-grid">{Object.entries({sku:"货号",barcode:"条码",name:"产品名称",category:"分类"}).map(([k,l])=><label key={k}>{l}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>; }
+const productFields=[
+  ["sku","productSku","text"],["barcode","productBarcode","text"],["name","productName","text"],["category","productCategory","text"],["supplier","supplier","text"],["unit","productUnit","text"],["boxSize","productBoxSize","number"],["cost","productCost","number"],["price","productPrice","number"],
+];
+
+function ProductModal({product,onClose,onSave}) {
+  const {t}=useI18n();
+  const [form,setForm]=useState(()=>({sku:product?.sku||"",barcode:product?.barcode||"",name:product?.name||"",category:product?.category||"",supplier:product?.supplier||"",unit:product?.unit||"个",boxSize:product?.boxSize??1,cost:product?.cost??0,price:product?.price??0})),[error,setError]=useState(""),[saving,setSaving]=useState(false);
+  const save=async()=>{const data={...form,boxSize:Number(form.boxSize),cost:Number(form.cost),price:Number(form.price)};if(!data.sku.trim()||!data.name.trim()||!data.unit.trim()||!Number.isSafeInteger(data.boxSize)||data.boxSize<=0||!Number.isFinite(data.cost)||data.cost<0||!Number.isFinite(data.price)||data.price<0)return setError(t("invalidProductFields"));setError("");setSaving(true);try{await onSave(data)}catch(e){setError(`${t("productSaveFailed")}：${e.message}`)}finally{setSaving(false)}};
+  return <Modal title={t(product?"editProduct":"newProduct")} onClose={onClose} wide><div className="form-grid">{productFields.map(([key,label,type])=><label key={key}>{t(label)}<input type={type} min={key==="boxSize"?"1":type==="number"?"0":undefined} step={key==="boxSize"?"1":type==="number"?"0.01":undefined} value={form[key]} onChange={e=>setForm({...form,[key]:e.target.value})}/></label>)}</div>{product&&<div className="readonly-note">{t("stockManagedByMovements")}：<b>{product.stock}</b></div>}{error&&<div className="form-error detail-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>;
+}
+
+function ProductDetailModal({product,loading,error,onClose}) {
+  const {t}=useI18n();
+  const facts=[["productSku",product.sku],["productBarcode",product.barcode||"—"],["productName",product.name],["productCategory",product.category||"—"],["supplier",product.supplier||"—"],["productUnit",product.unit],["productBoxSize",product.boxSize],["productCost",`${Number(product.cost||0).toFixed(2)} €`],["productPrice",money(product.price)],["currentStock",product.stock],["createdAt",product.createdAt?new Date(product.createdAt).toLocaleString():"—"],["updatedAt",product.updatedAt?new Date(product.updatedAt).toLocaleString():"—"]];
+  return <Modal title={`${t("productDetails")} · ${product.sku||""}`} onClose={onClose} wide>{loading?<div className="empty">{t("loading")}</div>:error?<div className="form-error detail-error">{error}</div>:<><div className="product-facts">{facts.map(([label,value])=><span key={label}><small>{t(label)}</small><b>{value}</b></span>)}</div><div className="detail-section-title">{t("inventoryMovements")}</div><div className="table-wrap detail-table"><table><thead><tr><th>{t("dateTime")}</th><th>{t("movementType")}</th><th>{t("warehouseLabel")}</th><th>{t("quantity")}</th><th>{t("referenceNo")}</th><th>{t("operator")}</th></tr></thead><tbody>{(product.movements||[]).map(movement=><tr key={movement.id}><td>{movement.date}</td><td>{t(`movement_${movement.movementType}`,movement.movementType)}</td><td>{movement.warehouse}</td><td><b className={movement.quantity<0?"stock-low":"stock-ok"}>{movement.quantity>0?`+${movement.quantity}`:movement.quantity}</b></td><td>{movement.referenceNo||"—"}</td><td>{movement.createdBy||"—"}</td></tr>)}</tbody></table>{!product.movements?.length&&<div className="empty">{t("noInventoryMovements")}</div>}</div></>}</Modal>;
+}
 
 function Purchases({ purchases, products, onCreate, onRefresh, loading=false, error="", canCreate=true }) {
   const { t } = useI18n();
@@ -251,6 +267,8 @@ export function App() {
   useEffect(()=>{if(session?.token)loadAll(session.token)},[session?.token]);
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
   const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [nextDashboard,nextReport]=await Promise.all([fetchDashboard(session.token),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const changeProduct=async(id,product)=>{const updated=await updateProductRequest(session.token,id,product);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));return updated};
+  const loadProductDetail=async id=>fetchProduct(session.token,id);
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
   const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
   const addSale=async(sale)=>{await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token,salesFilters),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
@@ -262,9 +280,9 @@ export function App() {
   const salesPage=<Sales sales={sales} filters={salesFilters} onRefresh={refreshSales} onLoadDetail={loadSaleDetail} onToggleStatus={changeSaleStatus} loading={dataLoading} error={dataError} canUpdateStatus={["admin","sales"].includes(session.user.role)}/>;
   const content=({
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={setPage}/>,
-    products:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    products:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
-    inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
     sales:salesPage,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
     reports:<Reports products={products} summary={reportSummary}/>,
