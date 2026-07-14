@@ -85,6 +85,11 @@ const normalizeSale = (sale) => ({
   qty: Number(sale.quantity || 0),
   total: Number(sale.total || 0),
   customer: sale.customer || "",
+  salesperson: sale.created_by || "",
+  itemCount: Number(sale.item_count || 0),
+  stockDeducted: Boolean(sale.stock_deducted),
+  delivered: Boolean(sale.delivered),
+  settled: Boolean(sale.settled),
 });
 
 const normalizeSaleDetail = (sale) => ({
@@ -169,6 +174,12 @@ export async function createSaleReturn(token, saleId, saleReturn) {
   return request(`/sales/${saleId}/returns`, {
     token, method: "POST", body: JSON.stringify(saleReturn),
   });
+}
+
+export async function updateSaleStatus(token, saleId, changes) {
+  return normalizeSale(await request(`/sales/${saleId}/status`, {
+    token, method: "PATCH", body: JSON.stringify(changes),
+  }));
 }
 
 export async function fetchDashboard(token) {

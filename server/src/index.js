@@ -209,7 +209,7 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
   const where=filters.length?` where ${filters.join(" and ")}`:"";
   const limit=filters.length?"":" limit 500";
-  const result=await pool.query(`select s.*,c.name customer,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id${where} group by s.id,c.name order by s.created_at desc${limit}`,params);
+  const result=await pool.query(`select s.*,c.name customer,count(si.id)::int item_count,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id${where} group by s.id,c.name order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
@@ -238,7 +238,7 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
   if(new Set(requested.map(item=>item.saleItemId)).size!==requested.length) return res.status(400).json({error:"duplicate return items are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
-    const sale=await client.query("select id,order_no from sales where id=$1 for update",[req.params.id]);
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const saleItems=await client.query("select id,product_id,quantity,price from sale_items where sale_id=$1 for update",[req.params.id]);
     const returned=await client.query("select sri.sale_item_id,coalesce(sum(sri.quantity),0)::int quantity from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1 group by sri.sale_item_id",[req.params.id]);
@@ -248,10 +248,34 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
     const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
     const returnNo=body.returnNo||`Vr${Date.now()}`;
     const created=await client.query("insert into sale_returns(return_no,sale_id,total,reason,created_by) values($1,$2,$3,$4,$5) returning *",[returnNo,req.params.id,total,String(body.reason||"").trim(),req.user.username]);
-    for(const item of items){await client.query("insert into sale_return_items(return_id,sale_item_id,product_id,quantity,price) values($1,$2,$3,$4,$5)",[created.rows[0].id,item.saleItemId,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_return',$3,$4)",[item.productId,item.quantity,returnNo,req.user.username]);}
+    for(const item of items){await client.query("insert into sale_return_items(return_id,sale_item_id,product_id,quantity,price) values($1,$2,$3,$4,$5)",[created.rows[0].id,item.saleItemId,item.productId,item.quantity,item.price]);if(sale.rows[0].stock_deducted){await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_return',$3,$4)",[item.productId,item.quantity,returnNo,req.user.username]);}}
     const totals=await client.query("select (select coalesce(sum(quantity),0) from sale_items where sale_id=$1)::int sold,(select coalesce(sum(sri.quantity),0) from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1)::int returned",[req.params.id]);
     await client.query("update sales set status=$1 where id=$2",[totals.rows[0].returned>=totals.rows[0].sold?"已退货":"部分退货",req.params.id]);
     await client.query("commit");res.status(201).json(created.rows[0]);
+  }catch(e){await client.query("rollback");throw e}finally{client.release()}
+}));
+
+app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const fields={stockDeducted:"stock_deducted",delivered:"delivered",settled:"settled"};
+  const changes=Object.entries(fields).filter(([key])=>typeof req.body?.[key]==="boolean");
+  if(!changes.length)return res.status(400).json({error:"no valid status supplied"});
+  const client=await pool.connect();
+  try{await client.query("begin");
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
+    if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const stockChange=changes.find(([key])=>key==="stockDeducted");
+    if(stockChange&&req.body[stockChange[0]]!==sale.rows[0].stock_deducted){
+      const lines=await client.query("select si.id,si.product_id,si.quantity,coalesce(sum(sri.quantity),0)::int returned_quantity from sale_items si left join sale_return_items sri on sri.sale_item_id=si.id where si.sale_id=$1 group by si.id order by si.product_id",[req.params.id]);
+      const remainingByProduct=new Map();
+      for(const line of lines.rows){const remaining=Number(line.quantity)-Number(line.returned_quantity);remainingByProduct.set(Number(line.product_id),(remainingByProduct.get(Number(line.product_id))||0)+remaining)}
+      const deduct=req.body[stockChange[0]];
+      for(const [productId,quantity] of [...remainingByProduct].sort((a,b)=>a[0]-b[0])){if(quantity<=0)continue;const product=await client.query("select stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} not found`);error.status=409;throw error}if(deduct&&Number(product.rows[0].stock)<quantity){const error=new Error(`商品 ${productId} 库存不足`);error.status=409;throw error}const delta=deduct?-quantity:quantity;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,$3,$4,$5)",[productId,delta,deduct?"sale_status_deduct":"sale_status_restore",sale.rows[0].order_no,req.user.username]);}
+    }
+    const values=changes.map(([key])=>req.body[key]);
+    const assignments=changes.map(([,column],index)=>`${column}=$${index+1}`);
+    values.push(req.params.id);
+    const result=await client.query(`update sales set ${assignments.join(",")} where id=$${values.length} returning *`,values);
+    await client.query("commit");res.json(result.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
