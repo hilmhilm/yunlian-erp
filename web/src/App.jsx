@@ -3,7 +3,7 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Store, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
@@ -145,11 +145,16 @@ function Purchases({ purchases, products, onCreate, onRefresh, loading=false, er
 
 function PurchaseModal({products,onClose,onSave}) {
   const {t}=useI18n();
-  const [form,setForm]=useState({supplier:"",warehouse:"主仓库",productId:products[0]?.id||"",quantity:1,cost:products[0]?.cost||0});
+  const newItem=(product=products[0])=>({key:`${Date.now()}-${Math.random()}`,productId:product?.id||"",quantity:1,cost:product?.cost||0});
+  const [form,setForm]=useState({supplier:"",warehouse:"主仓库",items:[newItem()]});
   const [saving,setSaving]=useState(false),[error,setError]=useState("");
-  const chooseProduct=(value)=>{const product=products.find(p=>String(p.id)===value);setForm(v=>({...v,productId:value,cost:product?.cost||0}))};
-  const save=async()=>{if(!form.supplier||!form.productId||Number(form.quantity)<=0)return setError(t("requiredPurchaseFields"));setSaving(true);setError("");try{const quantity=Number(form.quantity),cost=Number(form.cost);await onSave({supplier:form.supplier,warehouse:form.warehouse,total:quantity*cost,status:"已入库",items:[{productId:Number(form.productId),quantity,cost}]})}catch(e){setError(`${t("purchaseCreateFailed")}：${e.message}`)}finally{setSaving(false)}};
-  return <Modal title={t("createPurchase")} onClose={onClose}><div className="form-grid"><label>{t("supplier")}<input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></label><label>{t("warehouseLabel")}<select value={form.warehouse} onChange={e=>setForm({...form,warehouse:e.target.value})}><option value="主仓库">主仓库</option><option value="门店仓">门店仓</option></select></label><label>{t("product")}<select value={form.productId} onChange={e=>chooseProduct(e.target.value)}>{products.map(p=><option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}</select></label><label>{t("quantity")}<input type="number" min="1" value={form.quantity} onChange={e=>setForm({...form,quantity:e.target.value})}/></label><label>{t("unitCost")}<input type="number" min="0" step="0.01" value={form.cost} onChange={e=>setForm({...form,cost:e.target.value})}/></label></div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving||!products.length}>{saving?t("saving"):t("createPurchase")}</button></div></Modal>;
+  const updateItem=(key,changes)=>setForm(current=>({...current,items:current.items.map(item=>item.key===key?{...item,...changes}:item)}));
+  const chooseProduct=(key,value)=>{const product=products.find(p=>String(p.id)===value);updateItem(key,{productId:value,cost:product?.cost||0})};
+  const addItem=()=>{const selected=new Set(form.items.map(item=>String(item.productId)));const product=products.find(item=>!selected.has(String(item.id)))||products[0];setForm(current=>({...current,items:[...current.items,newItem(product)]}))};
+  const removeItem=(key)=>setForm(current=>({...current,items:current.items.filter(item=>item.key!==key)}));
+  const total=form.items.reduce((sum,item)=>sum+Number(item.quantity||0)*Number(item.cost||0),0);
+  const save=async()=>{const items=form.items.map(({productId,quantity,cost})=>({productId:Number(productId),quantity:Number(quantity),cost:Number(cost)}));if(!form.supplier.trim()||!items.length||items.some(item=>!item.productId||!Number.isInteger(item.quantity)||item.quantity<=0||!Number.isFinite(item.cost)||item.cost<0))return setError(t("requiredPurchaseFields"));if(new Set(items.map(item=>item.productId)).size!==items.length)return setError(t("duplicatePurchaseProduct"));setSaving(true);setError("");try{await onSave({supplier:form.supplier.trim(),warehouse:form.warehouse,items})}catch(e){setError(`${t("purchaseCreateFailed")}：${e.message}`)}finally{setSaving(false)}};
+  return <Modal title={t("createPurchase")} onClose={onClose} wide><div className="form-grid purchase-head"><label>{t("supplier")}<input value={form.supplier} onChange={e=>setForm({...form,supplier:e.target.value})}/></label><label>{t("warehouseLabel")}<select value={form.warehouse} onChange={e=>setForm({...form,warehouse:e.target.value})}><option value="主仓库">{t("mainWarehouse")}</option><option value="门店仓">{t("storeWarehouse")}</option></select></label></div><div className="purchase-items"><div className="purchase-items-head"><b>{t("purchaseItems")}</b><button className="outline" type="button" onClick={addItem} disabled={!products.length||form.items.length>=products.length}><Plus size={15}/>{t("addLine")}</button></div>{!products.length&&<div className="empty purchase-empty">{t("noProductsForPurchase")}</div>}{form.items.map((item,index)=><div className="purchase-line" key={item.key}><span className="line-number">{index+1}</span><label>{t("product")}<select value={item.productId} onChange={e=>chooseProduct(item.key,e.target.value)}>{products.map(p=><option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}</select></label><label>{t("quantity")}<input type="number" min="1" step="1" value={item.quantity} onChange={e=>updateItem(item.key,{quantity:e.target.value})}/></label><label>{t("unitCost")}<input type="number" min="0" step="0.01" value={item.cost} onChange={e=>updateItem(item.key,{cost:e.target.value})}/></label><span className="line-total"><small>{t("lineTotal")}</small>{money(Number(item.quantity||0)*Number(item.cost||0))}</span><button className="icon-btn remove-line" type="button" title={t("removeLine")} aria-label={t("removeLine")} onClick={()=>removeItem(item.key)} disabled={form.items.length===1}><Trash2 size={17}/></button></div>)}</div>{error&&<div className="form-error purchase-error">{error}</div>}<div className="purchase-total"><span>{t("purchaseTotal")}</span><b>{money(total)}</b></div><div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving||!products.length}>{saving?t("saving"):t("createPurchase")}</button></div></Modal>;
 }
 
 function Customers({ customers,onCreate,onLoad,loading=false,error="",canCreate=true }) {
@@ -198,7 +203,7 @@ function UserModal({onClose,onSave}) {
 }
 
 function Page({children}) {return <div className="page-content">{children}</div>}
-function Modal({title,onClose,children}) {return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="modal"><div className="modal-head"><b>{title}</b><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
+function Modal({title,onClose,children,wide=false}) {return <div className="modal-backdrop" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className={`modal${wide?" modal-wide":""}`}><div className="modal-head"><b>{title}</b><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
 
 export function App() {
   const [session,setSession]=useState(getStoredSession);

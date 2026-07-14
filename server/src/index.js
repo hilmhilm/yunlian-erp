@@ -175,10 +175,23 @@ app.post("/api/customers", requireRole("admin","sales"), asyncRoute(async (req,r
 
 app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id group by p.id order by p.created_at desc limit 500")).rows)));
 app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const body=req.body||{};
+  const supplier=String(body.supplier||"").trim();
+  const warehouse=String(body.warehouse||"主仓库").trim();
+  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),cost:Number(item.cost)})):[];
+  if(!supplier) return res.status(400).json({error:"supplier is required"});
+  if(!warehouse) return res.status(400).json({error:"warehouse is required"});
+  if(!items.length||items.length>200) return res.status(400).json({error:"purchase must contain between 1 and 200 items"});
+  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity<=0||!Number.isFinite(item.cost)||item.cost<0)) return res.status(400).json({error:"purchase contains an invalid item"});
+  if(new Set(items.map(item=>item.productId)).size!==items.length) return res.status(400).json({error:"duplicate products are not allowed"});
+  const total=items.reduce((sum,item)=>sum+item.quantity*item.cost,0);
   const client=await pool.connect();
-  try{await client.query("begin");const b=req.body;
-    const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[b.orderNo||`Vin${Date.now()}`,b.supplier,b.warehouse||"主仓库",b.total||0,b.status||"已入库"]);
-    for(const item of b.items||[]){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,b.warehouse||"主仓库",item.quantity,order.rows[0].order_no,req.user.sub]);}
+  try{await client.query("begin");
+    const productIds=items.map(item=>item.productId);
+    const products=await client.query("select id from products where id=any($1::bigint[]) for update",[productIds]);
+    if(products.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
+    const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[body.orderNo||`Vin${Date.now()}`,supplier,warehouse,total,"已入库"]);
+    for(const item of items){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,warehouse,item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
@@ -198,7 +211,7 @@ app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async
   res.json(result.rows[0]);
 }));
 
-app.use((err,_req,res,_next)=>{console.error(err);if(err.code==="23505")return res.status(409).json({error:"记录已存在"});res.status(500).json({error:err.message||"server error"})});
+app.use((err,_req,res,_next)=>{console.error(err);if(err.code==="23505")return res.status(409).json({error:"记录已存在"});res.status(err.status||500).json({error:err.message||"server error"})});
 
 async function start() {
   await runMigrations(pool);
