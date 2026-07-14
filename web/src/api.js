@@ -94,19 +94,11 @@ const normalizeSale = (sale) => ({
 
 const normalizeSaleDetail = (sale) => ({
   ...normalizeSale(sale),
-  returnedTotal: Number(sale.returned_total || 0),
   items: (sale.items || []).map(item => ({
     ...item,
     productId: Number(item.product_id),
     quantity: Number(item.quantity || 0),
-    returnedQuantity: Number(item.returned_quantity || 0),
     price: Number(item.price || 0),
-  })),
-  returns: (sale.returns || []).map(item => ({
-    ...item,
-    returnNo: item.return_no,
-    total: Number(item.total || 0),
-    date: formatDate(item.created_at),
   })),
 });
 
@@ -168,12 +160,6 @@ export async function createSale(token, sale) {
 
 export async function fetchSale(token, id) {
   return normalizeSaleDetail(await request(`/sales/${id}`, { token }));
-}
-
-export async function createSaleReturn(token, saleId, saleReturn) {
-  return request(`/sales/${saleId}/returns`, {
-    token, method: "POST", body: JSON.stringify(saleReturn),
-  });
 }
 
 export async function updateSaleStatus(token, saleId, changes) {

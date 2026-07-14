@@ -213,19 +213,22 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const sale=await pool.query("select s.*,c.name customer,coalesce((select sum(sr.total) from sale_returns sr where sr.sale_id=s.id),0) returned_total from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  const sale=await pool.query("select s.*,c.name customer from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
-  const [items,returns]=await Promise.all([
-    pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.name,coalesce(sum(sri.quantity),0)::int returned_quantity from sale_items si join products p on p.id=si.product_id left join sale_return_items sri on sri.sale_item_id=si.id where si.sale_id=$1 group by si.id,p.sku,p.name order by si.id",[req.params.id]),
-    pool.query("select id,return_no,total,reason,created_by,created_at from sale_returns where sale_id=$1 order by created_at desc,id desc",[req.params.id]),
-  ]);
-  res.json({...sale.rows[0],items:items.rows,returns:returns.rows});
+  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.name from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
+  res.json({...sale.rows[0],items:items.rows});
 }));
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const body=req.body||{};
+  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),price:Number(item.price)})):[];
+  if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
+  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0||!Number.isFinite(item.price)||item.price<0))return res.status(400).json({error:"sale contains an invalid item"});
+  if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
+  const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
   const client=await pool.connect();
-  try{await client.query("begin");const b=req.body;
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by) values($1,$2,$3,'已完成',$4) returning *",[b.orderNo||`Vs${Date.now()}`,b.customerId||null,b.total||0,req.user.username]);
-    for(const item of b.items||[]){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount){const error=new Error(`商品 ${item.productId} 不存在`);error.status=400;throw error}await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
+  try{await client.query("begin");
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by) values($1,$2,$3,'已完成',$4) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username]);
+    for(const item of items){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount){const error=new Error(`商品 ${item.productId} 不存在`);error.status=400;throw error}await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
@@ -269,7 +272,7 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
       const remainingByProduct=new Map();
       for(const line of lines.rows){const remaining=Number(line.quantity)-Number(line.returned_quantity);remainingByProduct.set(Number(line.product_id),(remainingByProduct.get(Number(line.product_id))||0)+remaining)}
       const deduct=req.body[stockChange[0]];
-      for(const [productId,quantity] of [...remainingByProduct].sort((a,b)=>a[0]-b[0])){if(quantity<=0)continue;const product=await client.query("select stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} not found`);error.status=409;throw error}const delta=deduct?-quantity:quantity;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,$3,$4,$5)",[productId,delta,deduct?"sale_status_deduct":"sale_status_restore",sale.rows[0].order_no,req.user.username]);}
+      for(const [productId,quantity] of [...remainingByProduct].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;const product=await client.query("select stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} not found`);error.status=409;throw error}const delta=deduct?-quantity:quantity;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,$3,$4,$5)",[productId,delta,deduct?"sale_status_deduct":"sale_status_restore",sale.rows[0].order_no,req.user.username]);}
     }
     const values=changes.map(([key])=>req.body[key]);
     const assignments=changes.map(([,column],index)=>`${column}=$${index+1}`);
