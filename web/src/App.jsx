@@ -14,25 +14,26 @@ import {
   login as loginRequest, storeSession, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", customers: "customerList", sales: "salesList", returns: "returns", pos: "scanSales", reports: "reports", users: "employeeManagement", settings: "settings" };
+const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanRetail: "scanRetail", scanSales: "scanSales", returns: "returns", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
+const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", categories: "products", customerAccounts: "customers", scanRetail: "pos", scanSales: "pos", returns: "sales", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
-  customers: ["admin","sales","finance"], sales: ["admin","sales","finance"], returns: ["admin","sales","finance"],
+  customers: ["admin","sales","finance"], sales: ["admin","sales","finance"],
   pos: ["admin","sales"], reports: ["admin","finance"], users: ["admin"],
 };
-const canAccess = (role,page) => !pageRoles[page] || pageRoles[page].includes(role);
+const canAccess = (role,page) => !pageRoles[pageTargets[page]||page] || pageRoles[pageTargets[page]||page].includes(role);
 
 const menu = [
   { id: "dashboard", labelKey: "dashboard", icon: Home },
-  { labelKey: "control", icon: BarChart3, children: [{ id: "dashboard", labelKey: "operatingControl" }, { id: "purchases", labelKey: "smartPurchase" }] },
-  { labelKey: "goods", icon: Boxes, children: [{ id: "products", labelKey: "products" }, { id: "purchases", labelKey: "purchase" }, { id: "inventory", labelKey: "inventory" }, { id: "products", labelKey: "categories" }] },
-  { labelKey: "customers", icon: Users, children: [{ id: "customers", labelKey: "customerList" }, { id: "customers", labelKey: "customerAccounts" }] },
-  { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "pos", labelKey: "scanRetail" }, { id: "pos", labelKey: "scanSales" }, { id: "returns", labelKey: "returns" }] },
-  { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "reports", labelKey: "flowDetails" }, { id: "reports", labelKey: "orderFinance" }] },
-  { labelKey: "invoice", icon: FileText, children: [{ id: "sales", labelKey: "invoiceList" }, { id: "sales", labelKey: "issueInvoice" }] },
+  { labelKey: "control", icon: BarChart3, children: [{ id: "operatingControl", labelKey: "operatingControl" }, { id: "smartPurchase", labelKey: "smartPurchase" }] },
+  { labelKey: "goods", icon: Boxes, children: [{ id: "products", labelKey: "products" }, { id: "purchases", labelKey: "purchase" }, { id: "inventory", labelKey: "inventory" }, { id: "categories", labelKey: "categories" }] },
+  { labelKey: "customers", icon: Users, children: [{ id: "customers", labelKey: "customerList" }, { id: "customerAccounts", labelKey: "customerAccounts" }] },
+  { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "scanRetail", labelKey: "scanRetail" }, { id: "scanSales", labelKey: "scanSales" }, { id: "returns", labelKey: "returns" }] },
+  { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "flowDetails", labelKey: "flowDetails" }, { id: "orderFinance", labelKey: "orderFinance" }] },
+  { labelKey: "invoice", icon: FileText, children: [{ id: "invoiceList", labelKey: "invoiceList" }, { id: "issueInvoice", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
-  { labelKey: "cloudStore", icon: Store, children: [{ id: "products", labelKey: "cloudProducts" }, { id: "settings", labelKey: "cloudSettings" }] },
+  { labelKey: "cloudStore", icon: Store, children: [{ id: "cloudProducts", labelKey: "cloudProducts" }, { id: "cloudSettings", labelKey: "cloudSettings" }] },
   { id: "users", labelKey: "employeeManagement", icon: Users },
   { id: "settings", labelKey: "settings", icon: Settings },
 ];
@@ -270,6 +271,6 @@ export function App() {
     reports:<Reports products={products} summary={reportSummary}/>,
     users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,
     settings:<SettingsPage currentUser={session.user} onOpenEmployees={()=>setPage("users")}/>
-  })[page];
+  })[pageTargets[page]||page];
   return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} role={session.user.role}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
 }
