@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
@@ -14,12 +14,12 @@ import {
   login as loginRequest, storeSession, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", customers: "customerList", sales: "salesList", pos: "scanSales", reports: "reports", settings: "settings" };
+const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", customers: "customerList", sales: "salesList", pos: "scanSales", reports: "reports", users: "employeeManagement", settings: "settings" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
   customers: ["admin","sales","finance"], sales: ["admin","sales","finance"],
-  pos: ["admin","sales"], reports: ["admin","finance"],
+  pos: ["admin","sales"], reports: ["admin","finance"], users: ["admin"],
 };
 const canAccess = (role,page) => !pageRoles[page] || pageRoles[page].includes(role);
 
@@ -33,6 +33,7 @@ const menu = [
   { labelKey: "invoice", icon: FileText, children: [{ id: "sales", labelKey: "invoiceList" }, { id: "sales", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
   { labelKey: "cloudStore", icon: Store, children: [{ id: "products", labelKey: "cloudProducts" }, { id: "settings", labelKey: "cloudSettings" }] },
+  { id: "users", labelKey: "employeeManagement", icon: Users },
   { id: "settings", labelKey: "settings", icon: Settings },
 ];
 
@@ -178,12 +179,15 @@ function POS({products,customers,onSaveSale}) {
 
 function Reports({products,summary}) { const revenue=summary?.salesTotal||0,purchase=summary?.purchaseTotal||0,stock=summary?.stockTotal??products.reduce((s,p)=>s+p.stock,0);return <Page><div className="report-summary"><Stat icon={ShoppingCart} color="#3f9fea" label="销售额" value={money(revenue)} suffix="本期"/><Stat icon={Truck} color="#26b99a" label="采购额" value={money(purchase)} suffix="本期"/><Stat icon={Warehouse} color="#f6a43a" label="库存" value={stock} suffix="件"/><Stat icon={CircleDollarSign} color="#f05a78" label="销售采购差额" value={money(revenue-purchase)} suffix="本期"/></div><section className="panel reports-panel"><h2>报表</h2>{[["货物",["入库报表","采购价格变动","库存报表","调拨分析报表","库存盘点报表","进销存报表"]],["客户",["客户报表","客户账目分析"]],["销售",["销售报表","销售分析","销售趋势图","客单价报表","销售饼状图","利润报表"]],["财务",["财务流水报表","还款报表","日结单","月结单","业绩报表"]]].map(([g,items])=><div className="report-group" key={g}><h3>{g}</h3><div>{items.map((x,i)=><button key={x}><FileBarChart size={18} color={["#3f9fea","#f6a43a","#26b99a"][i%3]}/>{x}</button>)}</div></div>)}</section></Page>; }
 
-function SettingsPage({currentUser,users,onCreateUser,onUpdateUser,loading=false,error=""}) {
+function SettingsPage({currentUser,onOpenEmployees}) {
+  const {t}=useI18n();
+  return <Page><section className="panel settings-panel"><h2>{t("systemSettings")}</h2><div className="settings-grid">{[[Store,"基础信息","企业名称、货币与语言"],[Warehouse,"仓库管理","多仓库与门店库存"],[Truck,"供货商","采购供货商资料"],[Tags,"各种选项","分类、单位与价格规则"],[Database,"系统日志","审计、备份与恢复"]].map(([I,title,description])=><button key={title}><I/><span><b>{title}</b><small>{description}</small></span><ChevronDown/></button>)}{currentUser.role==="admin"&&<button onClick={onOpenEmployees}><Users/><span><b>{t("employeeManagement")}</b><small>{t("employeeAccessDescription")}</small></span><ChevronDown/></button>}</div></section></Page>
+}
+
+function UserManagementPage({currentUser,users,onCreateUser,onUpdateUser,loading=false,error=""}) {
   const {t}=useI18n();
   const [modal,setModal]=useState(false);
-  const employeeSection=useRef(null);
-  const openEmployees=()=>employeeSection.current?.scrollIntoView({behavior:"smooth",block:"start"});
-  return <Page><section className="panel settings-panel"><h2>{t("systemSettings")}</h2><div className="settings-grid">{[[Store,"基础信息","企业名称、货币与语言"],[Warehouse,"仓库管理","多仓库与门店库存"],[Truck,"供货商","采购供货商资料"],[Tags,"各种选项","分类、单位与价格规则"],[Database,"系统日志","审计、备份与恢复"]].map(([I,title,description])=><button key={title}><I/><span><b>{title}</b><small>{description}</small></span><ChevronDown/></button>)}{currentUser.role==="admin"&&<button onClick={openEmployees}><Users/><span><b>{t("employeeManagement")}</b><small>{t("employeeAccessDescription")}</small></span><ChevronDown/></button>}</div></section>{currentUser.role==="admin"&&<section ref={employeeSection} className="panel settings-panel user-management"><div className="panel-heading"><h2>{t("employeeManagement")}</h2><button className="primary" onClick={()=>setModal(true)} disabled={loading}><Plus size={16}/>{t("addUser")}</button></div>{error&&<div className="form-error">{error}</div>}<div className="table-wrap"><table><thead><tr><th>{t("username")}</th><th>{t("displayName")}</th><th>{t("role")}</th><th>{t("statusLabel")}</th><th>{t("lastLogin")}</th></tr></thead><tbody>{users.map(user=><tr key={user.id}><td>{user.username}</td><td>{user.displayName}</td><td><select value={user.role} disabled={loading||user.id===currentUser.id} onChange={e=>onUpdateUser(user.id,{role:e.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></td><td><button className={user.enabled?"status done":"status pending"} disabled={loading||user.id===currentUser.id} onClick={()=>onUpdateUser(user.id,{enabled:!user.enabled})}>{user.enabled?t("enabled"):t("disabled")}</button></td><td>{user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString():"—"}</td></tr>)}</tbody></table>{!users.length&&<div className="empty">{t("noData")}</div>}</div>{modal&&<UserModal onClose={()=>setModal(false)} onSave={async data=>{await onCreateUser(data);setModal(false)}}/>}</section>}</Page>
+  return <Page><section className="panel settings-panel user-management"><div className="panel-heading"><h2>{t("employeeManagement")}</h2><button className="primary" onClick={()=>setModal(true)} disabled={loading}><Plus size={16}/>{t("addUser")}</button></div>{error&&<div className="form-error">{error}</div>}<div className="table-wrap"><table><thead><tr><th>{t("username")}</th><th>{t("displayName")}</th><th>{t("role")}</th><th>{t("statusLabel")}</th><th>{t("lastLogin")}</th></tr></thead><tbody>{users.map(user=><tr key={user.id}><td>{user.username}</td><td>{user.displayName}</td><td><select value={user.role} disabled={loading||user.id===currentUser.id} onChange={e=>onUpdateUser(user.id,{role:e.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></td><td><button className={user.enabled?"status done":"status pending"} disabled={loading||user.id===currentUser.id} onClick={()=>onUpdateUser(user.id,{enabled:!user.enabled})}>{user.enabled?t("enabled"):t("disabled")}</button></td><td>{user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString():"—"}</td></tr>)}</tbody></table>{!users.length&&<div className="empty">{t("noData")}</div>}</div>{modal&&<UserModal onClose={()=>setModal(false)} onSave={async data=>{await onCreateUser(data);setModal(false)}}/>}</section></Page>
 }
 
 function UserModal({onClose,onSave}) {
@@ -225,7 +229,9 @@ export function App() {
     inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
     sales:<Sales sales={sales} onRefresh={refreshSales} loading={dataLoading} error={dataError}/>,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
-    reports:<Reports products={products} summary={reportSummary}/>,settings:<SettingsPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>
+    reports:<Reports products={products} summary={reportSummary}/>,
+    users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,
+    settings:<SettingsPage currentUser={session.user} onOpenEmployees={()=>setPage("users")}/>
   })[page];
   if(!session)return <Login onLogin={login}/>;
   return <div className="app-shell"><Sidebar page={page} setPage={setPage} open={menuOpen} setOpen={setMenuOpen} role={session.user.role}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/>{content}</main></div>;
