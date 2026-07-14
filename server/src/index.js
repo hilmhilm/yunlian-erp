@@ -133,7 +133,7 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
   const [products, customers, sales, purchases] = await Promise.all([
     pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products"),
     pool.query("select count(*)::int count from customers"),
-    pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from sales where created_at::date=current_date"),
+    pool.query("select (select count(*) from sales where created_at::date=current_date)::int count, ((select coalesce(sum(total),0) from sales where created_at::date=current_date)-(select coalesce(sum(total),0) from sale_returns where created_at::date=current_date))::numeric total"),
     pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where created_at::date=current_date")
   ]);
   res.json({ products: products.rows[0], customers: customers.rows[0], sales: sales.rows[0], purchases: purchases.rows[0] });
@@ -197,17 +197,51 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
 }));
 
 app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select s.*,c.name customer,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id group by s.id,c.name order by s.created_at desc limit 500")).rows)));
+app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+  const sale=await pool.query("select s.*,c.name customer,coalesce((select sum(sr.total) from sale_returns sr where sr.sale_id=s.id),0) returned_total from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
+  const [items,returns]=await Promise.all([
+    pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.name,coalesce(sum(sri.quantity),0)::int returned_quantity from sale_items si join products p on p.id=si.product_id left join sale_return_items sri on sri.sale_item_id=si.id where si.sale_id=$1 group by si.id,p.sku,p.name order by si.id",[req.params.id]),
+    pool.query("select id,return_no,total,reason,created_by,created_at from sale_returns where sale_id=$1 order by created_at desc,id desc",[req.params.id]),
+  ]);
+  res.json({...sale.rows[0],items:items.rows,returns:returns.rows});
+}));
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{await client.query("begin");const b=req.body;
     const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by) values($1,$2,$3,'已完成',$4) returning *",[b.orderNo||`Vs${Date.now()}`,b.customerId||null,b.total||0,req.user.username]);
-    for(const item of b.items||[]){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount||locked.rows[0].stock<item.quantity)throw new Error(`商品 ${item.productId} 库存不足`);await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.sub]);}
+    for(const item of b.items||[]){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount||locked.rows[0].stock<item.quantity)throw new Error(`商品 ${item.productId} 库存不足`);await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
+app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const body=req.body||{};
+  const requested=Array.isArray(body.items)?body.items.map(item=>({saleItemId:Number(item.saleItemId),quantity:Number(item.quantity)})).filter(item=>item.quantity>0):[];
+  if(!requested.length||requested.length>200) return res.status(400).json({error:"return must contain between 1 and 200 items"});
+  if(requested.some(item=>!Number.isSafeInteger(item.saleItemId)||item.saleItemId<=0||!Number.isSafeInteger(item.quantity)||item.quantity<=0)) return res.status(400).json({error:"return contains an invalid item"});
+  if(new Set(requested.map(item=>item.saleItemId)).size!==requested.length) return res.status(400).json({error:"duplicate return items are not allowed"});
+  const client=await pool.connect();
+  try{await client.query("begin");
+    const sale=await client.query("select id,order_no from sales where id=$1 for update",[req.params.id]);
+    if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const saleItems=await client.query("select id,product_id,quantity,price from sale_items where sale_id=$1 for update",[req.params.id]);
+    const returned=await client.query("select sri.sale_item_id,coalesce(sum(sri.quantity),0)::int quantity from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1 group by sri.sale_item_id",[req.params.id]);
+    const returnedByItem=new Map(returned.rows.map(item=>[Number(item.sale_item_id),Number(item.quantity)]));
+    const saleItemById=new Map(saleItems.rows.map(item=>[Number(item.id),item]));
+    const items=requested.map(item=>{const sold=saleItemById.get(item.saleItemId);if(!sold){const error=new Error("return item does not belong to this sale");error.status=400;throw error}if((returnedByItem.get(item.saleItemId)||0)+item.quantity>Number(sold.quantity)){const error=new Error("return quantity exceeds the remaining sold quantity");error.status=409;throw error}return {...item,productId:Number(sold.product_id),price:Number(sold.price)}});
+    const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
+    const returnNo=body.returnNo||`Vr${Date.now()}`;
+    const created=await client.query("insert into sale_returns(return_no,sale_id,total,reason,created_by) values($1,$2,$3,$4,$5) returning *",[returnNo,req.params.id,total,String(body.reason||"").trim(),req.user.username]);
+    for(const item of items){await client.query("insert into sale_return_items(return_id,sale_item_id,product_id,quantity,price) values($1,$2,$3,$4,$5)",[created.rows[0].id,item.saleItemId,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_return',$3,$4)",[item.productId,item.quantity,returnNo,req.user.username]);}
+    const totals=await client.query("select (select coalesce(sum(quantity),0) from sale_items where sale_id=$1)::int sold,(select coalesce(sum(sri.quantity),0) from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1)::int returned",[req.params.id]);
+    await client.query("update sales set status=$1 where id=$2",[totals.rows[0].returned>=totals.rows[0].sold?"已退货":"部分退货",req.params.id]);
+    await client.query("commit");res.status(201).json(created.rows[0]);
+  }catch(e){await client.query("rollback");throw e}finally{client.release()}
+}));
+
 app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select (select coalesce(sum(total),0) from sales) sales_total,(select coalesce(sum(total),0) from purchases) purchase_total,(select coalesce(sum(stock),0) from products) stock_total");
+  const result=await pool.query("select ((select coalesce(sum(total),0) from sales)-(select coalesce(sum(total),0) from sale_returns)) sales_total,(select coalesce(sum(total),0) from purchases) purchase_total,(select coalesce(sum(stock),0) from products) stock_total");
   res.json(result.rows[0]);
 }));
 

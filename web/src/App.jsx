@@ -7,9 +7,9 @@ import {
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
-  ApiError, clearStoredSession, createCustomer as createCustomerRequest,
+  ApiError, clearStoredSession, createCustomer as createCustomerRequest, createSaleReturn as createSaleReturnRequest,
   createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
-  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProducts,
+  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProducts, fetchSale,
   fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
   login as loginRequest, storeSession, updateUser as updateUserRequest,
 } from "./api.js";
@@ -38,6 +38,7 @@ const menu = [
 ];
 
 const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " Ft";
+const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
   const { t, locale, setLocale, locales } = useI18n();
@@ -120,7 +121,7 @@ function Dashboard({ products, customers, sales, summary, setPage }) {
 
 function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, placeholder="搜索货号、条码或名称" }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onSearch?.()}/></div><select><option>{t("select")}</option><option>{t("all")}</option></select><button className="primary" onClick={onSearch} disabled={busy}><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>{t("refresh")}</button>{onAdd&&<button className="primary" onClick={onAdd} disabled={busy}><Plus size={16}/>{t("add")}</button>}</div>; }
 
-function DataTable({ columns, rows, renderCell }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title="详情"><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
+function DataTable({ columns, rows, renderCell, onDetail }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions"><button title="编辑"><Pencil size={16}/></button><button title={t("details")} onClick={()=>onDetail?.(row)}><ClipboardList size={16}/></button></div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c]):r[c]}</span>)}</div>)}</div>; }
 
 function Products({ products, onCreate, onLoad, loading=false, error="", inventoryOnly=false, canCreate=true }) {
@@ -169,7 +170,23 @@ function CustomerModal({onClose,onSave}) {
   return <Modal title={t("newCustomer")} onClose={onClose}><div className="form-grid">{["name","phone","city","address"].map(k=><label key={k}>{t({name:"customerName",phone:"phone",city:"city",address:"address"}[k])}<input value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})}/></label>)}</div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>;
 }
 
-function Sales({sales,onRefresh,loading=false,error=""}) { const {t}=useI18n(); const [search,setSearch]=useState("");return <Page><Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder="搜索销售单号或客户"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={sales.filter(s=>`${s.id}${s.customer}`.toLowerCase().includes(search.toLowerCase()))} columns={[{key:"id",label:"销售单号"},{key:"date",label:"订单日期"},{key:"customer",label:"客户"},{key:"qty",label:"总数"},{key:"total",label:"总价"},{key:"status",label:"状态"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className="status done">{r.status}</span>:r[c.key]}/></Page>; }
+function Sales({sales,onRefresh,onLoadDetail,onReturn,loading=false,error="",canReturn=true}) {
+  const {t}=useI18n();
+  const [search,setSearch]=useState(""),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
+  const openDetail=async sale=>{setDetailLoading(true);setDetailError("");setDetail({databaseId:sale.databaseId,id:sale.id});try{setDetail(await onLoadDetail(sale.databaseId))}catch(e){setDetailError(e.message)}finally{setDetailLoading(false)}};
+  const submitReturn=async payload=>{const next=await onReturn(detail.databaseId,payload);setDetail(next)};
+  return <Page><Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder={t("searchSales")}/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={sales.filter(s=>`${s.id}${s.customer}`.toLowerCase().includes(search.toLowerCase()))} columns={[{key:"id",label:t("salesOrderNo")},{key:"date",label:t("orderDate")},{key:"customer",label:t("customer")},{key:"qty",label:t("quantity")},{key:"total",label:t("total")},{key:"status",label:t("statusLabel")}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已完成"?"done":"pending"}`}>{saleStatusLabel(r.status,t)}</span>:r[c.key]} onDetail={openDetail}/>{detail&&<SaleDetailModal sale={detail} loading={detailLoading} error={detailError} canReturn={canReturn} onReturn={submitReturn} onClose={()=>setDetail(null)}/>}</Page>;
+}
+
+function SaleDetailModal({sale,loading,error,canReturn,onReturn,onClose}) {
+  const {t}=useI18n();
+  const [quantities,setQuantities]=useState({}),[reason,setReason]=useState(""),[saving,setSaving]=useState(false),[returnError,setReturnError]=useState("");
+  const items=sale.items||[];
+  const returnItems=items.map(item=>({saleItemId:item.id,quantity:Number(quantities[item.id]||0)})).filter(item=>item.quantity>0);
+  const returnTotal=returnItems.reduce((sum,item)=>{const source=items.find(row=>row.id===item.saleItemId);return sum+item.quantity*(source?.price||0)},0);
+  const save=async()=>{if(!returnItems.length)return setReturnError(t("selectReturnItems"));if(returnItems.some(item=>{const source=items.find(row=>row.id===item.saleItemId);return !Number.isInteger(item.quantity)||item.quantity>source.quantity-source.returnedQuantity}))return setReturnError(t("returnQuantityExceeded"));setSaving(true);setReturnError("");try{await onReturn({reason,items:returnItems});setQuantities({});setReason("")}catch(e){setReturnError(`${t("returnFailed")}：${e.message}`)}finally{setSaving(false)}};
+  return <Modal title={`${t("saleDetails")} · ${sale.id||""}`} onClose={onClose} wide>{loading?<div className="empty">{t("loading")}</div>:error?<div className="form-error detail-error">{error}</div>:<><div className="sale-summary"><span><small>{t("customer")}</small><b>{sale.customer||t("walkInCustomer")}</b></span><span><small>{t("orderDate")}</small><b>{sale.date}</b></span><span><small>{t("salesTotal")}</small><b>{money(sale.total)}</b></span><span><small>{t("returnedTotal")}</small><b>{money(sale.returnedTotal)}</b></span></div><div className="table-wrap detail-table"><table><thead><tr><th>{t("product")}</th><th>{t("quantitySold")}</th><th>{t("returnedQuantity")}</th><th>{t("returnableQuantity")}</th><th>{t("unitPrice")}</th>{canReturn&&<th>{t("returnNow")}</th>}</tr></thead><tbody>{items.map(item=>{const remaining=item.quantity-item.returnedQuantity;return <tr key={item.id}><td><b>{item.sku}</b><br/><small>{item.name}</small></td><td>{item.quantity}</td><td>{item.returnedQuantity}</td><td>{remaining}</td><td>{money(item.price)}</td>{canReturn&&<td><input className="return-qty" type="number" min="0" max={remaining} step="1" disabled={!remaining||saving} value={quantities[item.id]||""} onChange={e=>setQuantities({...quantities,[item.id]:e.target.value})}/></td>}</tr>})}</tbody></table></div>{canReturn&&<div className="return-form"><label>{t("returnReason")}<input value={reason} onChange={e=>setReason(e.target.value)} placeholder={t("returnReasonPlaceholder")}/></label><span>{t("returnTotal")}<b>{money(returnTotal)}</b></span><button className="primary" onClick={save} disabled={saving||!returnItems.length}>{saving?t("saving"):t("confirmReturn")}</button></div>}{returnError&&<div className="form-error detail-error">{returnError}</div>}{sale.returns?.length>0&&<div className="return-history"><b>{t("returnHistory")}</b>{sale.returns.map(item=><div key={item.id}><span>{item.returnNo}</span><span>{item.date}</span><span>{item.reason||"—"}</span><strong>{money(item.total)}</strong></div>)}</div>}</>}</Modal>;
+}
 
 function POS({products,customers,onSaveSale}) {
   const {t}=useI18n();
@@ -219,12 +236,15 @@ export function App() {
   const loadCustomers=async(search="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setCustomers(await fetchCustomers(session.token,search))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const refreshPurchases=async()=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setPurchases(await fetchPurchases(session.token))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const refreshSales=async()=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setSales(await fetchSales(session.token))}catch(error){handleError(error)}finally{setDataLoading(false)}};
+  const refreshReport=()=>["admin","finance"].includes(session?.user?.role)?fetchReportSummary(session.token):Promise.resolve(reportSummary);
   useEffect(()=>{if(session?.token)loadAll(session.token)},[session?.token]);
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
-  const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [nextDashboard,nextReport]=await Promise.all([fetchDashboard(session.token),fetchReportSummary(session.token)]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [nextDashboard,nextReport]=await Promise.all([fetchDashboard(session.token),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
-  const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),fetchReportSummary(session.token)]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
-  const addSale=async(sale)=>{await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token),fetchDashboard(session.token),fetchReportSummary(session.token)]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const addSale=async(sale)=>{await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const loadSaleDetail=async id=>fetchSale(session.token,id);
+  const returnSale=async(id,saleReturn)=>{await createSaleReturnRequest(session.token,id,saleReturn);const [nextProducts,nextSales,nextDashboard,nextReport,detail]=await Promise.all([fetchProducts(session.token),fetchSales(session.token),fetchDashboard(session.token),refreshReport(),fetchSale(session.token,id)]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);return detail};
   const addUser=async(user)=>{const created=await createUserRequest(session.token,user);setUsers(current=>[...current,created])};
   const changeUser=async(id,changes)=>{const updated=await updateUserRequest(session.token,id,changes);setUsers(current=>current.map(user=>user.id===updated.id?updated:user))};
   if(!session?.user)return <Login onLogin={login}/>;
@@ -234,7 +254,7 @@ export function App() {
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     inventory:<Products products={products} onCreate={addProduct} onLoad={loadProducts} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
-    sales:<Sales sales={sales} onRefresh={refreshSales} loading={dataLoading} error={dataError}/>,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
+    sales:<Sales sales={sales} onRefresh={refreshSales} onLoadDetail={loadSaleDetail} onReturn={returnSale} loading={dataLoading} error={dataError} canReturn={["admin","sales"].includes(session.user.role)}/>,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
     reports:<Reports products={products} summary={reportSummary}/>,
     users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,
     settings:<SettingsPage currentUser={session.user} onOpenEmployees={()=>setPage("users")}/>
