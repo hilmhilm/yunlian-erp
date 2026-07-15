@@ -230,6 +230,7 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
 }));
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
+  const notes=String(body.notes||"").trim().slice(0,1000);
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),price:Number(item.price)})):[];
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
   if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0||!Number.isFinite(item.price)||item.price<0))return res.status(400).json({error:"sale contains an invalid item"});
@@ -237,7 +238,7 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
   const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
   const client=await pool.connect();
   try{await client.query("begin");
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by) values($1,$2,$3,'已完成',$4) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username]);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes) values($1,$2,$3,'已完成',$4,$5) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes]);
     for(const item of items){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount){const error=new Error(`商品 ${item.productId} 不存在`);error.status=400;throw error}await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}

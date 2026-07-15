@@ -35,3 +35,31 @@
 - P3: add sortable column headers after server-side ordering is available.
 
 final result: passed
+
+---
+
+# Design QA — 采集器销售
+
+- source visual truth path: `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-2e9f0dca-4871-4837-8385-73e9960b142e.png`
+- implementation screenshot path: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/collector-implementation.png`
+- comparison evidence: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/collector-comparison.png`
+- viewport: 1655 × 567 desktop
+- state: authenticated sales user on the empty collector-import form
+
+**Findings**
+
+- No actionable P0/P1/P2 visual differences remain for the requested collector-sales scope.
+- The implementation follows the reference's compact two-tab header, aligned label/control rows, delimiter selector, segmented optional-field control, red format hint, large scanner input, two-step buttons, reset action and progress bar.
+- The existing ERP sidebar, sticky header and page tabs are intentionally retained. The reference depicts only a content area, while this implementation is integrated into the established application shell.
+- The product currently has one warehouse and one accounting currency, so those selectors truthfully show the fixed main warehouse and HUF instead of presenting non-functional options.
+- All visible icons use the existing Lucide library; the screen requires no raster assets.
+
+**Interaction and runtime checks**
+
+- Confirmed the sales menu contains only “扫码销售” plus the new “采集器销售”; the duplicate “扫码零售” item is absent.
+- Checked three realistic records by barcode/SKU, including a negative quantity. All products matched and the preview totals were correct.
+- Imported the checked records through the real sales client flow; order `Vs20260715-4` was returned by the local integration fixture and inventory changed in the expected direction.
+- Import remains disabled before a successful check, and the progress state moved from 0% to 50% to 100%.
+- Browser console errors checked: none.
+
+final result: passed

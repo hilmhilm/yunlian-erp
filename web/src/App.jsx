@@ -14,13 +14,13 @@ import {
   login as loginRequest, storeSession, updateProduct as updateProductRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanRetail: "scanRetail", scanSales: "scanSales", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
-const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", categories: "products", customerAccounts: "customers", scanRetail: "pos", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
+const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
+const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", categories: "products", customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
   customers: ["admin","sales","finance"], sales: ["admin","sales","finance"],
-  pos: ["admin","sales"], reports: ["admin","finance"], users: ["admin"],
+  pos: ["admin","sales"], collectorSales: ["admin","sales"], reports: ["admin","finance"], users: ["admin"],
 };
 const canAccess = (role,page) => !pageRoles[pageTargets[page]||page] || pageRoles[pageTargets[page]||page].includes(role);
 
@@ -29,7 +29,7 @@ const menu = [
   { labelKey: "control", icon: BarChart3, children: [{ id: "operatingControl", labelKey: "operatingControl" }, { id: "smartPurchase", labelKey: "smartPurchase" }] },
   { labelKey: "goods", icon: Boxes, children: [{ id: "products", labelKey: "products" }, { id: "purchases", labelKey: "purchase" }, { id: "inventory", labelKey: "inventory" }, { id: "categories", labelKey: "categories" }] },
   { labelKey: "customers", icon: Users, children: [{ id: "customers", labelKey: "customerList" }, { id: "customerAccounts", labelKey: "customerAccounts" }] },
-  { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "scanRetail", labelKey: "scanRetail" }, { id: "scanSales", labelKey: "scanSales" }] },
+  { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "scanSales", labelKey: "scanSales" }, { id: "collectorSales", labelKey: "collectorSales" }] },
   { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "flowDetails", labelKey: "flowDetails" }, { id: "orderFinance", labelKey: "orderFinance" }] },
   { labelKey: "invoice", icon: FileText, children: [{ id: "invoiceList", labelKey: "invoiceList" }, { id: "issueInvoice", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
@@ -41,7 +41,7 @@ const menu = [
 const money = (n) => new Intl.NumberFormat("zh-CN").format(Number(n || 0)) + " Ft";
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.14-5";
+const uiVersion = "2026.07.15-1";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -115,7 +115,7 @@ function Dashboard({ products, customers, sales, summary, setPage }) {
   return <div className="page-content">
     <div className="smart-actions"><button className="outline danger">智能采购 推荐进货: 51</button><button className="outline success">推荐供货商</button><button className="outline" onClick={()=>setPage("reports")}>新老板视图</button></div>
     <div className="stats-grid"><Stat icon={Boxes} color="#26b99a" label="货物" value={summary?.products.count ?? products.length} suffix="种商品"/><Stat icon={ShoppingCart} color="#3f9fea" label="今日销售" value={money(revenue)} suffix={`${summary?.sales.count ?? 0} 笔订单`}/><Stat icon={CircleDollarSign} color="#f05a78" label="库存成本" value={money(products.reduce((s,p)=>s+p.stock*p.cost*390,0))} suffix={`${stock} 件库存`}/><Stat icon={Users} color="#42c7c7" label="客户" value={summary?.customers.count ?? customers.length} suffix="活跃客户"/></div>
-    <div className="quick-row"><button onClick={()=>setPage("purchases")}><ArrowDownToLine/>新品入库</button><button onClick={()=>setPage("pos")}><ScanLine/>扫码销售</button><button onClick={()=>setPage("reports")}><WalletCards/>财务</button><button onClick={()=>setPage("reports")}><BarChart3/>销售报表</button></div>
+    <div className="quick-row"><button onClick={()=>setPage("purchases")}><ArrowDownToLine/>新品入库</button><button onClick={()=>setPage("scanSales")}><ScanLine/>扫码销售</button><button onClick={()=>setPage("reports")}><WalletCards/>财务</button><button onClick={()=>setPage("reports")}><BarChart3/>销售报表</button></div>
     <div className="dashboard-grid"><section className="panel chart-panel"><div className="panel-title">近 7 日销售趋势</div><div className="bar-chart">{[42,58,37,72,66,89,76].map((h,i)=><div key={i}><span style={{height:`${h}%`}}></span><small>{i+7}日</small></div>)}</div></section><section className="panel"><div className="panel-title">最近销售</div><CompactTable rows={sales.slice(0,6)} columns={["id","qty","total","customer"]}/></section></div>
     <div className="rank-grid">{[
       ["7天热销数量",products.slice(0,3)],["7天热销金额",products.slice(1,4)],["7天热销利润",products.slice(2,5)],["7天库存预警",products.filter(p=>p.stock<100)]
@@ -225,6 +225,66 @@ function POS({products,customers,onSaveSale}) {
   return <div className="pos-page"><div className="pos-main"><form className="scan-bar" onSubmit={scan}><select><option>× 1 / 个 / Ft</option></select><input autoFocus value={query} onChange={e=>setQuery(e.target.value)} placeholder="请扫描条码、输入货号或商品名"/><button className="outline" type="button">新品(F9)</button></form><div className="product-picks">{products.slice(0,5).map(p=><button key={p.id} onClick={()=>addProduct(p)}><Package size={17}/>{p.sku}<small>{p.name}</small></button>)}</div>{error&&<div className="form-error">{error}</div>}<div className="table-wrap cart-table"><table><thead><tr><th>货号</th><th>产品</th><th>库存</th><th>原价</th><th>数量</th><th>售价</th><th></th></tr></thead><tbody>{cart.map(p=><tr key={p.id}><td>{p.sku}</td><td>{p.name}</td><td>{p.stock}</td><td>{money(p.price)}</td><td><div className="qty"><button type="button" onClick={()=>setCart(v=>v.map(x=>x.id===p.id?{...x,qty:x.qty-1}:x))}>−</button><input type="number" step="1" value={p.qty} onChange={e=>{const quantity=Number(e.target.value);if(Number.isSafeInteger(quantity))setCart(v=>v.map(x=>x.id===p.id?{...x,qty:quantity}:x))}}/><button type="button" onClick={()=>setCart(v=>v.map(x=>x.id===p.id?{...x,qty:x.qty+1}:x))}>+</button></div></td><td>{money(p.price*p.qty)}</td><td><button className="icon-btn" onClick={()=>setCart(v=>v.filter(x=>x.id!==p.id))}><X size={16}/></button></td></tr>)}</tbody></table>{!cart.length&&<div className="empty">扫描或选择商品后会出现在这里</div>}</div></div><aside className="checkout"><div className="checkout-total"><span>{t("total")}</span><b>{money(total)}</b></div><label>{t("customer")}<select value={customerId} onChange={e=>setCustomerId(e.target.value)}><option value="">{t("walkInCustomer")}</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label><button className="danger-soft" onClick={()=>setCart([])} disabled={saving}>{t("clear")}</button><button className="save-order" disabled={!cart.length||hasZeroQuantity||saving} onClick={save}><Check size={18}/>{saving?t("saving"):t("saveOrder")}</button></aside>{toast&&<div className="toast"><Check size={17}/>{toast}</div>}</div>;
 }
 
+function CollectorSales({products,onSaveSale}) {
+  const {t}=useI18n();
+  const [delimiter,setDelimiter]=useState("comma"),[notes,setNotes]=useState(""),[input,setInput]=useState("");
+  const [result,setResult]=useState(null),[error,setError]=useState(""),[toast,setToast]=useState(""),[saving,setSaving]=useState(false),[progress,setProgress]=useState(0);
+  const reset=()=>{setInput("");setNotes("");setResult(null);setError("");setToast("");setProgress(0)};
+  const check=()=>{
+    setError("");setToast("");setProgress(0);
+    const lines=input.split(/\r?\n/).map((value,index)=>({value:value.trim(),line:index+1})).filter(line=>line.value);
+    if(!lines.length){setResult(null);return setError(t("collectorInputRequired"))}
+    const productByCode=new Map();
+    products.forEach(product=>{if(product.sku)productByCode.set(String(product.sku).trim(),product);if(product.barcode)productByCode.set(String(product.barcode).trim(),product)});
+    const parsed=[],errors=[];
+    lines.forEach(({value,line})=>{
+      const parts=delimiter==="comma"?value.split(",").map(part=>part.trim()):value.split(/\s+/).map(part=>part.trim());
+      if(parts.length!==2||!parts[0]||!parts[1]){errors.push({line,message:t("collectorInvalidFormat")});return}
+      const [code,quantityText]=parts,quantity=Number(quantityText);
+      if(!Number.isSafeInteger(quantity)||quantity===0){errors.push({line,message:t("collectorInvalidQuantity")});return}
+      const product=productByCode.get(code);
+      if(!product){errors.push({line,message:`${t("collectorProductNotFound")}：${code}`});return}
+      parsed.push({line,code,product,quantity});
+    });
+    const grouped=new Map();
+    parsed.forEach(item=>{const current=grouped.get(item.product.id);grouped.set(item.product.id,current?{...current,quantity:current.quantity+item.quantity}:item)});
+    const rows=[...grouped.values()];
+    rows.filter(row=>row.quantity===0).forEach(row=>errors.push({line:row.line,message:`${t("collectorZeroCombinedQuantity")}：${row.code}`}));
+    const validRows=rows.filter(row=>row.quantity!==0);
+    if(validRows.length>200)errors.push({line:"—",message:t("collectorTooManyProducts")});
+    setResult({rows:validRows,errors,lineCount:lines.length});setProgress(errors.length?35:50);
+  };
+  const importOrder=async()=>{
+    if(!result)return setError(t("collectorCheckFirst"));
+    if(result.errors.length)return setError(t("collectorFixErrors"));
+    if(!result.rows.length)return setError(t("collectorInputRequired"));
+    setSaving(true);setError("");setToast("");setProgress(72);
+    try{
+      const created=await onSaveSale({customerId:null,notes,items:result.rows.map(row=>({productId:row.product.id,quantity:row.quantity,price:row.product.price}))});
+      setProgress(100);setToast(`${t("collectorImportSuccess")}：${created?.id||""}`.replace(/：$/,""));setInput("");setResult(null);
+    }catch(requestError){setProgress(0);setError(`${t("collectorImportFailed")}：${requestError.message}`)}finally{setSaving(false)}
+  };
+  return <div className="collector-page">
+    <div className="collector-tabs"><button className="active">{t("bulkImport")}</button><button disabled>{t("excelImport")}</button></div>
+    <section className="collector-form">
+      <div className="collector-row"><label>{t("collectorWarehouse")}:</label><select value="main" disabled><option value="main">{t("mainWarehouse")}</option></select></div>
+      <div className="collector-row"><label>{t("currencyChoice")}:</label><select value="HUF" disabled><option value="HUF">Ft (HUF)</option></select><div className="delimiter-choice"><label><input type="radio" name="delimiter" checked={delimiter==="comma"} onChange={()=>{setDelimiter("comma");setResult(null)}}/>{t("commaDelimiter")}</label><label><input type="radio" name="delimiter" checked={delimiter==="space"} onChange={()=>{setDelimiter("space");setResult(null)}}/>{t("spaceDelimiter")}</label></div></div>
+      <div className="collector-row collector-note"><label>{t("salesNote")}:</label><input maxLength="1000" value={notes} onChange={event=>setNotes(event.target.value)}/></div>
+      <div className="collector-row"><label>{t("optionalField")}:</label><div className="field-pills"><span>{t("boxCount")}</span><span>{t("packCount")}</span><b>{t("quantity")}</b><span>{t("unitPrice")}</span><span>{t("salesNote")}</span></div></div>
+      <div className="collector-row format-row"><label>{t("inputFormat")}:</label><strong>{delimiter==="comma"?t("collectorCommaFormat"):t("collectorSpaceFormat")}</strong></div>
+      <div className="collector-input-row"><label>{t("inputContent")}:</label><textarea autoFocus value={input} onChange={event=>{setInput(event.target.value);setResult(null);setProgress(0)}} placeholder={t("collectorInputPlaceholder")}/></div>
+      {error&&<div className="form-error collector-message">{error}</div>}
+      {toast&&<div className="collector-success"><Check size={16}/>{toast}</div>}
+      <div className="collector-actions"><button className="outline" onClick={check} disabled={saving}>1. {t("checkGoods")}</button><button className="primary" onClick={importOrder} disabled={saving||!result||Boolean(result.errors.length)}>2. {saving?t("saving"):t("importOrder")}</button><button className="outline collector-reset" title={t("resetImport")} aria-label={t("resetImport")} onClick={reset} disabled={saving}><RefreshCw size={19}/></button></div>
+      <div className="collector-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow={progress}><span style={{width:`${progress}%`}}></span><small>{progress}%</small></div>
+    </section>
+    {result&&<section className="collector-results panel"><div className="collector-result-head"><b>{result.errors.length?t("collectorCheckErrors"):t("collectorCheckPassed")}</b><span>{result.lineCount} {t("collectorRecords")} · {result.rows.length} {t("collectorProducts")}</span></div>
+      {result.rows.length>0&&<div className="table-wrap"><table><thead><tr><th>{t("lineNumber")}</th><th>{t("productSku")}/{t("productBarcode")}</th><th>{t("productName")}</th><th>{t("currentStock")}</th><th>{t("quantity")}</th><th>{t("unitPrice")}</th><th>{t("lineTotal")}</th></tr></thead><tbody>{result.rows.map(row=><tr key={row.product.id}><td>{row.line}</td><td><b>{row.code}</b></td><td>{row.product.name}</td><td>{row.product.stock}</td><td><b className={row.quantity<0?"stock-low":"stock-ok"}>{row.quantity}</b></td><td>{money(row.product.price)}</td><td>{money(row.product.price*row.quantity)}</td></tr>)}</tbody></table></div>}
+      {result.errors.length>0&&<div className="collector-errors">{result.errors.map((item,index)=><div key={`${item.line}-${index}`}><b>{t("lineNumber")} {item.line}</b><span>{item.message}</span></div>)}</div>}
+    </section>}
+  </div>;
+}
+
 function Reports({products,summary}) { const revenue=summary?.salesTotal||0,purchase=summary?.purchaseTotal||0,stock=summary?.stockTotal??products.reduce((s,p)=>s+p.stock,0);return <Page><div className="report-summary"><Stat icon={ShoppingCart} color="#3f9fea" label="销售额" value={money(revenue)} suffix="本期"/><Stat icon={Truck} color="#26b99a" label="采购额" value={money(purchase)} suffix="本期"/><Stat icon={Warehouse} color="#f6a43a" label="库存" value={stock} suffix="件"/><Stat icon={CircleDollarSign} color="#f05a78" label="销售采购差额" value={money(revenue-purchase)} suffix="本期"/></div><section className="panel reports-panel"><h2>报表</h2>{[["货物",["入库报表","采购价格变动","库存报表","调拨分析报表","库存盘点报表","进销存报表"]],["客户",["客户报表","客户账目分析"]],["销售",["销售报表","销售分析","销售趋势图","客单价报表","销售饼状图","利润报表"]],["财务",["财务流水报表","还款报表","日结单","月结单","业绩报表"]]].map(([g,items])=><div className="report-group" key={g}><h3>{g}</h3><div>{items.map((x,i)=><button key={x}><FileBarChart size={18} color={["#3f9fea","#f6a43a","#26b99a"][i%3]}/>{x}</button>)}</div></div>)}</section></Page>; }
 
 function SettingsPage({currentUser,onOpenEmployees}) {
@@ -271,7 +331,7 @@ export function App() {
   const loadProductDetail=async id=>fetchProduct(session.token,id);
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
   const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
-  const addSale=async(sale)=>{await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token,salesFilters),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const addSale=async(sale)=>{const created=await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token,salesFilters),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);return created};
   const loadSaleDetail=async id=>fetchSale(session.token,id);
   const changeSaleStatus=async(id,changes)=>{await updateSaleStatusRequest(session.token,id,changes);setSales(current=>current.map(sale=>sale.databaseId===id?{...sale,...changes}:sale));if(typeof changes.stockDeducted==="boolean"){try{const [nextProducts,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setDashboardSummary(nextDashboard);setReportSummary(nextReport)}catch(error){handleError(error)}}};
   const addUser=async(user)=>{const created=await createUserRequest(session.token,user);setUsers(current=>[...current,created])};
@@ -285,6 +345,7 @@ export function App() {
     inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
     sales:salesPage,pos:<POS products={products} customers={customers} onSaveSale={addSale}/>,
+    collectorSales:<CollectorSales products={products} onSaveSale={addSale}/>,
     reports:<Reports products={products} summary={reportSummary}/>,
     users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,
     settings:<SettingsPage currentUser={session.user} onOpenEmployees={()=>setPage("users")}/>
