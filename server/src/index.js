@@ -255,6 +255,43 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
+app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const body=req.body||{};
+  const notes=String(body.notes||"").trim().slice(0,1000);
+  const currency=String(body.currency||"HUF").toUpperCase();
+  const currencies=new Set(["HUF","EUR","USD"]);
+  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
+  if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
+  if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
+  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
+  if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
+  const client=await pool.connect();
+  try{await client.query("begin");
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
+    if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const returns=await client.query("select 1 from sale_returns where sale_id=$1 limit 1",[req.params.id]);
+    if(returns.rowCount){const error=new Error("sales with legacy return records cannot be edited");error.status=409;throw error}
+    const oldItems=await client.query("select product_id,quantity from sale_items where sale_id=$1 order by product_id for update",[req.params.id]);
+    const productIds=[...new Set([...oldItems.rows.map(item=>Number(item.product_id)),...items.map(item=>item.productId)])].sort((a,b)=>a-b);
+    const productRows=[];
+    for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
+    const productById=new Map(productRows.map(product=>[Number(product.id),product]));
+    const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
+    const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
+    const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
+    if(sale.rows[0].stock_deducted){
+      const stockChanges=new Map();
+      oldItems.rows.forEach(item=>stockChanges.set(Number(item.product_id),(stockChanges.get(Number(item.product_id))||0)+Number(item.quantity)));
+      pricedItems.forEach(item=>stockChanges.set(item.productId,(stockChanges.get(item.productId)||0)-item.quantity));
+      for(const [productId,quantity] of [...stockChanges].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[quantity,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_edit',$3,$4)",[productId,quantity,sale.rows[0].order_no,req.user.username])}
+    }
+    await client.query("delete from sale_items where sale_id=$1",[req.params.id]);
+    for(const item of pricedItems)await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[req.params.id,item.productId,item.quantity,item.price]);
+    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4 where id=$5 returning *",[body.customerId||null,total,notes,currency,req.params.id]);
+    await client.query("commit");res.json(updated.rows[0]);
+  }catch(e){await client.query("rollback");throw e}finally{client.release()}
+}));
+
 app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const requested=Array.isArray(body.items)?body.items.map(item=>({saleItemId:Number(item.saleItemId),quantity:Number(item.quantity)})).filter(item=>item.quantity>0):[];

@@ -97,10 +97,12 @@ const normalizeSale = (sale) => ({
   date: formatDate(sale.created_at),
   qty: Number(sale.quantity || 0),
   total: Number(sale.total || 0),
+  customerId: Number(sale.customer_id ?? sale.customerId) || null,
   customer: sale.customer || "",
   salesperson: sale.created_by || "",
   itemCount: Number(sale.item_count || 0),
   currency: sale.currency || "HUF",
+  notes: sale.notes || "",
   stockDeducted: Boolean(sale.stock_deducted),
   delivered: Boolean(sale.delivered),
   settled: Boolean(sale.settled),
@@ -181,6 +183,12 @@ export async function fetchSales(token, { startDate = "", endDate = "" } = {}) {
 export async function createSale(token, sale) {
   return normalizeSale(await request("/sales", {
     token, method: "POST", body: JSON.stringify(sale),
+  }));
+}
+
+export async function updateSale(token, saleId, sale) {
+  return normalizeSale(await request(`/sales/${saleId}`, {
+    token, method: "PUT", body: JSON.stringify(sale),
   }));
 }
 
