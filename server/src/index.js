@@ -131,13 +131,16 @@ app.patch("/api/users/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
 }));
 
 app.get("/api/dashboard", asyncRoute(async (_req, res) => {
-  const [products, customers, sales, purchases] = await Promise.all([
+  const [products, customers, sales, returns, purchases] = await Promise.all([
     pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products"),
     pool.query("select count(*)::int count from customers"),
-    pool.query("select (select count(*) from sales where created_at::date=current_date)::int count, ((select coalesce(sum(total),0) from sales where created_at::date=current_date)-(select coalesce(sum(total),0) from sale_returns where created_at::date=current_date))::numeric total"),
+    pool.query("select count(*)::int count,coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where created_at::date=current_date"),
+    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where sr.created_at::date=current_date"),
     pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where created_at::date=current_date")
   ]);
-  res.json({ products: products.rows[0], customers: customers.rows[0], sales: sales.rows[0], purchases: purchases.rows[0] });
+  const saleTotals={...sales.rows[0]};
+  for(const currency of ["huf","eur","usd"])saleTotals[`total_${currency}`]=Number(saleTotals[`total_${currency}`])-Number(returns.rows[0][`total_${currency}`]);
+  res.json({ products: products.rows[0], customers: customers.rows[0], sales: saleTotals, purchases: purchases.rows[0] });
 }));
 
 app.get("/api/products", asyncRoute(async (req, res) => {
@@ -152,16 +155,16 @@ app.get("/api/products/:id", asyncRoute(async (req,res)=>{
   res.json({...product.rows[0],movements:movements.rows});
 }));
 app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
-  const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),price=Number(b.price??0);
-  if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||!Number.isFinite(cost)||cost<0||!Number.isFinite(price)||price<0)return res.status(400).json({error:"invalid product data"});
-  const result = await pool.query("insert into products(sku,barcode,name,category,supplier,unit,box_size,cost,price,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,0) returning *", [sku,String(b.barcode||"").trim(),name,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,price]);
+  const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),priceHuf=Number(b.priceHuf??b.price??0),priceEur=Number(b.priceEur??0),priceUsd=Number(b.priceUsd??0);
+  if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||[cost,priceHuf,priceEur,priceUsd].some(value=>!Number.isFinite(value)||value<0))return res.status(400).json({error:"invalid product data"});
+  const result = await pool.query("insert into products(sku,barcode,name,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0) returning *", [sku,String(b.barcode||"").trim(),name,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,priceHuf,priceEur,priceUsd]);
   res.status(201).json(result.rows[0]);
 }));
 app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
   const b=req.body||{};
-  const sku=b.sku===undefined?null:String(b.sku).trim(),name=b.name===undefined?null:String(b.name).trim(),unit=b.unit===undefined?null:String(b.unit).trim(),boxSize=b.boxSize===undefined?null:Number(b.boxSize),cost=b.cost===undefined?null:Number(b.cost),price=b.price===undefined?null:Number(b.price);
-  if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||(cost!==null&&(!Number.isFinite(cost)||cost<0))||(price!==null&&(!Number.isFinite(price)||price<0)))return res.status(400).json({error:"invalid product data"});
-  const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),category=coalesce($4,category),supplier=coalesce($5,supplier),unit=coalesce($6,unit),box_size=coalesce($7,box_size),cost=coalesce($8,cost),price=coalesce($9,price),updated_at=now() where id=$10 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,price,req.params.id]);
+  const sku=b.sku===undefined?null:String(b.sku).trim(),name=b.name===undefined?null:String(b.name).trim(),unit=b.unit===undefined?null:String(b.unit).trim(),boxSize=b.boxSize===undefined?null:Number(b.boxSize),cost=b.cost===undefined?null:Number(b.cost),priceHuf=b.priceHuf===undefined&&b.price===undefined?null:Number(b.priceHuf??b.price),priceEur=b.priceEur===undefined?null:Number(b.priceEur),priceUsd=b.priceUsd===undefined?null:Number(b.priceUsd);
+  if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||[cost,priceHuf,priceEur,priceUsd].some(value=>value!==null&&(!Number.isFinite(value)||value<0)))return res.status(400).json({error:"invalid product data"});
+  const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),category=coalesce($4,category),supplier=coalesce($5,supplier),unit=coalesce($6,unit),box_size=coalesce($7,box_size),cost=coalesce($8,cost),price=coalesce($9,price),price_eur=coalesce($10,price_eur),price_usd=coalesce($11,price_usd),updated_at=now() where id=$12 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
   res.json(result.rows[0]);
 }));
@@ -231,15 +234,23 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const notes=String(body.notes||"").trim().slice(0,1000);
-  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),price:Number(item.price)})):[];
+  const currency=String(body.currency||"HUF").toUpperCase();
+  const currencies=new Set(["HUF","EUR","USD"]);
+  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
+  if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
-  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0||!Number.isFinite(item.price)||item.price<0))return res.status(400).json({error:"sale contains an invalid item"});
+  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
-  const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
   const client=await pool.connect();
   try{await client.query("begin");
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes) values($1,$2,$3,'已完成',$4,$5) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes]);
-    for(const item of items){const locked=await client.query("select stock from products where id=$1 for update",[item.productId]);if(!locked.rowCount){const error=new Error(`商品 ${item.productId} 不存在`);error.status=400;throw error}await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
+    const productRows=await client.query("select id,price,price_eur,price_usd from products where id=any($1::bigint[]) for update",[items.map(item=>item.productId)]);
+    if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
+    const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
+    const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
+    const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
+    const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency) values($1,$2,$3,'已完成',$4,$5,$6) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency]);
+    for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
@@ -294,8 +305,15 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
 }));
 
 app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select ((select coalesce(sum(total),0) from sales)-(select coalesce(sum(total),0) from sale_returns)) sales_total,(select coalesce(sum(total),0) from purchases) purchase_total,(select coalesce(sum(stock),0) from products) stock_total");
-  res.json(result.rows[0]);
+  const [sales,returns,purchases,stock]=await Promise.all([
+    pool.query("select coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales"),
+    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id"),
+    pool.query("select coalesce(sum(total),0)::numeric total from purchases"),
+    pool.query("select coalesce(sum(stock),0)::int total from products"),
+  ]);
+  const result={purchase_total:purchases.rows[0].total,stock_total:stock.rows[0].total};
+  for(const currency of ["huf","eur","usd"])result[`sales_total_${currency}`]=Number(sales.rows[0][`total_${currency}`])-Number(returns.rows[0][`total_${currency}`]);
+  res.json(result);
 }));
 
 app.use((err,_req,res,_next)=>{console.error(err);if(err.code==="23505")return res.status(409).json({error:"记录已存在"});res.status(err.status||500).json({error:err.message||"server error"})});

@@ -11,3 +11,4 @@ When implementing from a selected generated mock, treat that image as the source
 - The ERP is multilingual by design. All new user-facing copy must be added through `src/i18n.jsx`; do not hardcode new UI strings in business components.
 - Initial supported locales are Simplified Chinese (`zh-CN`), English (`en`), and Hungarian (`hu`). Missing keys intentionally fall back to Simplified Chinese.
 - Overselling is a system requirement. Inventory may be negative; frontend sales flows must not block orders or stock-deduction actions because available stock is insufficient.
+- The supported business currencies are fixed to HUF, EUR, and USD. Every product has an independent sales price in each currency, and sales flows must preserve the selected currency.

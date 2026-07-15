@@ -56,6 +56,9 @@ const normalizeProduct = (product) => ({
   boxSize: Number(product.box_size ?? product.boxSize ?? 1),
   cost: Number(product.cost || 0),
   price: Number(product.price || 0),
+  priceHuf: Number(product.price ?? product.priceHuf ?? 0),
+  priceEur: Number(product.price_eur ?? product.priceEur ?? 0),
+  priceUsd: Number(product.price_usd ?? product.priceUsd ?? 0),
   stock: Number(product.stock || 0),
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
@@ -97,6 +100,7 @@ const normalizeSale = (sale) => ({
   customer: sale.customer || "",
   salesperson: sale.created_by || "",
   itemCount: Number(sale.item_count || 0),
+  currency: sale.currency || "HUF",
   stockDeducted: Boolean(sale.stock_deducted),
   delivered: Boolean(sale.delivered),
   settled: Boolean(sale.settled),
@@ -195,7 +199,7 @@ export async function fetchDashboard(token) {
   return {
     products: { count: Number(data.products.count || 0), stock: Number(data.products.stock || 0) },
     customers: { count: Number(data.customers.count || 0) },
-    sales: { count: Number(data.sales.count || 0), total: Number(data.sales.total || 0) },
+    sales: { count: Number(data.sales.count || 0), totals: { HUF:Number(data.sales.total_huf??data.sales.total??0),EUR:Number(data.sales.total_eur||0),USD:Number(data.sales.total_usd||0) } },
     purchases: { count: Number(data.purchases.count || 0), total: Number(data.purchases.total || 0) },
   };
 }
@@ -203,7 +207,7 @@ export async function fetchDashboard(token) {
 export async function fetchReportSummary(token) {
   const data = await request("/reports/summary", { token });
   return {
-    salesTotal: Number(data.sales_total || 0),
+    salesTotals: { HUF:Number(data.sales_total_huf??data.sales_total??0),EUR:Number(data.sales_total_eur||0),USD:Number(data.sales_total_usd||0) },
     purchaseTotal: Number(data.purchase_total || 0),
     stockTotal: Number(data.stock_total || 0),
   };
