@@ -222,14 +222,41 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
   const where=filters.length?` where ${filters.join(" and ")}`:"";
   const limit=filters.length?"":" limit 500";
-  const result=await pool.query(`select s.*,c.name customer,count(si.id)::int item_count,coalesce(sum(si.quantity),0)::int quantity from sales s left join customers c on c.id=s.customer_id left join sale_items si on si.sale_id=s.id${where} group by s.id,c.name order by s.created_at desc${limit}`,params);
+  const result=await pool.query(`select s.*,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
   const sale=await pool.query("select s.*,c.name customer from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
   const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.name from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
-  res.json({...sale.rows[0],items:items.rows});
+  const payments=await pool.query("select id,amount,method,booked_on,category,note,created_by,created_at from sale_payments where sale_id=$1 order by created_at desc,id desc",[req.params.id]);
+  const paidTotal=payments.rows.reduce((sum,payment)=>sum+Number(payment.amount),0);
+  res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
+}));
+
+app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+  const body=req.body||{},amountText=String(body.amount??""),amount=Number(body.amount),method=String(body.method||""),bookedOn=String(body.bookedOn||""),note=String(body.note||"").trim().slice(0,1000);
+  const datePattern=/^\d{4}-\d{2}-\d{2}$/;
+  const parsedDate=new Date(`${bookedOn}T00:00:00Z`);
+  const validDate=datePattern.test(bookedOn)&&!Number.isNaN(parsedDate.getTime())&&parsedDate.toISOString().slice(0,10)===bookedOn;
+  if(!/^\d+(\.\d{1,2})?$/.test(amountText)||!Number.isFinite(amount)||amount<=0)return res.status(400).json({error:"payment amount must be a positive value with at most two decimals"});
+  if(!new Set(["cash","bank_transfer"]).has(method))return res.status(400).json({error:"unsupported payment method"});
+  if(!validDate)return res.status(400).json({error:"invalid booking date"});
+  const client=await pool.connect();
+  try{await client.query("begin");
+    const sale=await client.query("select id,total,currency,settled from sales where id=$1 for update",[req.params.id]);
+    if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const total=Number(sale.rows[0].total);
+    if(total<=0){const error=new Error("only sales with a positive total can receive payments");error.status=409;throw error}
+    const paid=Number((await client.query("select coalesce(sum(amount),0)::numeric total from sale_payments where sale_id=$1",[req.params.id])).rows[0].total);
+    const remaining=Math.max(total-paid,0);
+    if(amount>remaining+0.0001){const error=new Error("payment exceeds the outstanding balance");error.status=409;throw error}
+    const payment=await client.query("insert into sale_payments(sale_id,amount,method,booked_on,category,note,created_by) values($1,$2,$3,$4,'sales_income',$5,$6) returning *",[req.params.id,amount,method,bookedOn,note,req.user.username]);
+    const paidTotal=paid+amount,settled=paidTotal>=total-0.0001;
+    await client.query("update sales set settled=$1 where id=$2",[settled,req.params.id]);
+    await client.query("commit");
+    res.status(201).json({payment:payment.rows[0],paid_total:paidTotal,balance:Math.max(total-paidTotal,0),settled,currency:sale.rows[0].currency});
+  }catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
@@ -269,6 +296,8 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
   try{await client.query("begin");
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const payments=await client.query("select 1 from sale_payments where sale_id=$1 limit 1",[req.params.id]);
+    if(payments.rowCount){const error=new Error("sales with payment records cannot be edited");error.status=409;throw error}
     const returns=await client.query("select 1 from sale_returns where sale_id=$1 limit 1",[req.params.id]);
     if(returns.rowCount){const error=new Error("sales with legacy return records cannot be edited");error.status=409;throw error}
     const oldItems=await client.query("select product_id,quantity from sale_items where sale_id=$1 order by product_id for update",[req.params.id]);
@@ -318,7 +347,7 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
 }));
 
 app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
-  const fields={stockDeducted:"stock_deducted",delivered:"delivered",settled:"settled"};
+  const fields={stockDeducted:"stock_deducted",delivered:"delivered"};
   const changes=Object.entries(fields).filter(([key])=>typeof req.body?.[key]==="boolean");
   if(!changes.length)return res.status(400).json({error:"no valid status supplied"});
   const client=await pool.connect();

@@ -38,6 +38,32 @@ final result: passed
 
 ---
 
+# Design QA — 销售订单结算
+
+- source visual truth path: `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-485ffefb-bf68-45f0-975b-2ebc317a1fbe.png`
+- implementation screenshot path: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/settlement-implementation.png`
+- comparison evidence: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/settlement-comparison.png`
+- state: authenticated user on an unpaid sales order, with real amount, currency and customer fields
+
+**Findings**
+
+- No actionable P0/P1/P2 visual differences remain for the requested settlement scope.
+- The compact title, order summary, booking date, finance category, receipt amount and footer actions follow the reference while retaining the ERP application shell.
+- Cash and bank-transfer receipts, partial/full settlement and payment history are real interactive controls backed by the payment API.
+- The sales list now shows paid and due columns plus red unpaid, yellow partial and blue paid status icons.
+- Icons use the existing Lucide library and all new copy is localized for Simplified Chinese, English and Hungarian.
+
+**Interaction and runtime checks**
+
+- Verified a HUF order from 57,000 Ft paid / 100,365 Ft due through a 50,000 Ft bank-transfer receipt.
+- Confirmed the list updated to 107,000 Ft paid / 50,365 Ft due and retained the yellow partial status.
+- Reopened the same order, paid the exact remainder, and confirmed 157,365 Ft paid / 0 Ft due with the blue paid status.
+- Confirmed the unpaid order opens directly from its red status icon.
+
+final result: passed
+
+---
+
 # Design QA — 采集器销售
 
 - source visual truth path: `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-2e9f0dca-4871-4837-8385-73e9960b142e.png`

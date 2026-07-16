@@ -3,24 +3,24 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Store, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest,
   createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
-  createSale as createSaleRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProducts, fetchSale,
+  createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProducts, fetchSale,
   fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
   login as loginRequest, storeSession, updateProduct as updateProductRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
+const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
 const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", categories: "products", customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
   customers: ["admin","sales","finance"], sales: ["admin","sales","finance"],
-  pos: ["admin","sales"], collectorSales: ["admin","sales"], reports: ["admin","finance"], users: ["admin"],
+  pos: ["admin","sales"], collectorSales: ["admin","sales"], saleSettlement: ["admin","sales","finance"], reports: ["admin","finance"], users: ["admin"],
 };
 const canAccess = (role,page) => !pageRoles[pageTargets[page]||page] || pageRoles[pageTargets[page]||page].includes(role);
 
@@ -197,22 +197,61 @@ function SaleStatusButton({value,label,onToggle,disabled=false}) {
   return <button type="button" className={`sale-state ${value?"complete":"incomplete"}`} onClick={onToggle} disabled={disabled} title={value?t("markPending"):t("markCompleted")} aria-label={`${label}：${value?t("completed"):t("pending")}`}>{value?<Check size={16} strokeWidth={3}/>:<X size={16} strokeWidth={3}/>}</button>;
 }
 
-function Sales({sales,filters,onRefresh,onLoadDetail,onToggleStatus,loading=false,error="",canUpdateStatus=true}) {
+function SettlementStatusButton({sale,onOpen,disabled=false}) {
+  const {t}=useI18n();
+  const state=sale.settled?"complete":sale.paidTotal>0?"partial":"incomplete";
+  const label=t(state==="complete"?"settlementPaid":state==="partial"?"settlementPartial":"settlementUnpaid");
+  return <button type="button" className={`sale-state settlement-state ${state}`} onClick={onOpen} disabled={disabled} title={t("openSettlement")} aria-label={`${t("settlementStatus")}：${label}`}>{state==="complete"?<Check size={16} strokeWidth={3}/>:state==="partial"?<Clock3 size={15} strokeWidth={2.7}/>:<X size={16} strokeWidth={3}/>}</button>;
+}
+
+function Sales({sales,filters,onRefresh,onLoadDetail,onToggleStatus,onOpenSettlement,loading=false,error="",canUpdateStatus=true,canSettle=true}) {
   const {t}=useI18n();
   const [search,setSearch]=useState(""),[startDate,setStartDate]=useState(filters.startDate),[endDate,setEndDate]=useState(filters.endDate),[filterError,setFilterError]=useState(""),[statusError,setStatusError]=useState(""),[updatingStatus,setUpdatingStatus]=useState(""),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
   const openDetail=async sale=>{setDetailLoading(true);setDetailError("");setDetail({databaseId:sale.databaseId,id:sale.id});try{setDetail(await onLoadDetail(sale.databaseId))}catch(e){setDetailError(e.message)}finally{setDetailLoading(false)}};
   const queryDates=()=>{if(startDate&&endDate&&startDate>endDate)return setFilterError(t("invalidDateRange"));setFilterError("");onRefresh({startDate,endDate})};
   const clearDates=()=>{setStartDate("");setEndDate("");setFilterError("")};
   const toggleStatus=async(row,key)=>{setUpdatingStatus(`${row.databaseId}-${key}`);setStatusError("");try{await onToggleStatus(row.databaseId,{[key]:!row[key]})}catch(e){setStatusError(`${t("statusUpdateFailed")}：${e.message}`)}finally{setUpdatingStatus("")}};
-  const statusKeys=new Set(["stockDeducted","delivered","settled"]);
-  const columns=[{key:"id",label:t("salesOrderNo")},{key:"databaseId",label:"ID"},{key:"date",label:t("orderDate")},{key:"salesperson",label:t("salesperson")},{key:"customer",label:t("customer")},{key:"itemCount",label:t("itemDetails")},{key:"qty",label:t("quantity")},{key:"currency",label:t("currencyChoice")},{key:"total",label:t("total")},{key:"stockDeducted",label:t("stockDeducted")},{key:"delivered",label:t("delivered")},{key:"settled",label:t("settlementStatus")}];
-  return <Page><div className="sales-list-page"><Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={queryDates} busy={loading} placeholder={t("searchSales")}/><div className="date-filter"><label>{t("startDate")}<input type="date" value={startDate} max={endDate||undefined} onChange={e=>setStartDate(e.target.value)}/></label><span>—</span><label>{t("endDate")}<input type="date" value={endDate} min={startDate||undefined} onChange={e=>setEndDate(e.target.value)}/></label><button className="primary" onClick={queryDates} disabled={loading}><Search size={16}/>{t("queryDateRange")}</button><button className="outline" onClick={clearDates} disabled={loading}>{t("clearDateRange")}</button></div>{(filterError||statusError||error)&&<div className="form-error page-error">{filterError||statusError||`${t("dataLoadFailed")}：${error}`}</div>}<div className="sales-dense-table"><DataTable rows={sales.filter(s=>`${s.id}${s.customer}${s.salesperson}`.toLowerCase().includes(search.toLowerCase()))} columns={columns} renderCell={(r,c)=>c.key==="total"?<b>{money(r.total,r.currency)}</b>:c.key==="itemCount"?<button type="button" className="detail-count" onClick={()=>openDetail(r)} title={t("details")} aria-label={`${t("details")} ${r.id}`}>{r.itemCount}</button>:statusKeys.has(c.key)?<SaleStatusButton value={r[c.key]} label={c.label} disabled={!canUpdateStatus||Boolean(updatingStatus)} onToggle={()=>toggleStatus(r,c.key)}/>:r[c.key]} onDetail={openDetail}/></div>{detail&&<SaleDetailModal sale={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</div></Page>;
+  const statusKeys=new Set(["stockDeducted","delivered"]);
+  const moneyKeys=new Set(["total","paidTotal","balance"]);
+  const columns=[{key:"id",label:t("salesOrderNo")},{key:"databaseId",label:"ID"},{key:"date",label:t("orderDate")},{key:"salesperson",label:t("salesperson")},{key:"customer",label:t("customer")},{key:"itemCount",label:t("itemDetails")},{key:"qty",label:t("quantity")},{key:"currency",label:t("currencyChoice")},{key:"total",label:t("total")},{key:"paidTotal",label:t("amountPaid")},{key:"balance",label:t("amountDue")},{key:"stockDeducted",label:t("stockDeducted")},{key:"delivered",label:t("delivered")},{key:"settled",label:t("settlementStatus")}];
+  return <Page><div className="sales-list-page"><Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={queryDates} busy={loading} placeholder={t("searchSales")}/><div className="date-filter"><label>{t("startDate")}<input type="date" value={startDate} max={endDate||undefined} onChange={e=>setStartDate(e.target.value)}/></label><span>—</span><label>{t("endDate")}<input type="date" value={endDate} min={startDate||undefined} onChange={e=>setEndDate(e.target.value)}/></label><button className="primary" onClick={queryDates} disabled={loading}><Search size={16}/>{t("queryDateRange")}</button><button className="outline" onClick={clearDates} disabled={loading}>{t("clearDateRange")}</button></div>{(filterError||statusError||error)&&<div className="form-error page-error">{filterError||statusError||`${t("dataLoadFailed")}：${error}`}</div>}<div className="sales-dense-table"><DataTable rows={sales.filter(s=>`${s.id}${s.customer}${s.salesperson}`.toLowerCase().includes(search.toLowerCase()))} columns={columns} renderCell={(r,c)=>moneyKeys.has(c.key)?<b className={c.key==="balance"&&r.balance>0?"amount-due":""}>{money(r[c.key],r.currency)}</b>:c.key==="itemCount"?<button type="button" className="detail-count" onClick={()=>openDetail(r)} title={t("details")} aria-label={`${t("details")} ${r.id}`}>{r.itemCount}</button>:c.key==="settled"?<SettlementStatusButton sale={r} disabled={!canSettle} onOpen={()=>onOpenSettlement(r)}/>:statusKeys.has(c.key)?<SaleStatusButton value={r[c.key]} label={c.label} disabled={!canUpdateStatus||Boolean(updatingStatus)} onToggle={()=>toggleStatus(r,c.key)}/>:r[c.key]} onDetail={openDetail}/></div>{detail&&<SaleDetailModal sale={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</div></Page>;
 }
 
 function SaleDetailModal({sale,loading,error,onClose}) {
   const {t}=useI18n();
   const items=sale.items||[];
   return <Modal title={`${t("saleDetails")} · ${sale.id||""}`} onClose={onClose} wide>{loading?<div className="empty">{t("loading")}</div>:error?<div className="form-error detail-error">{error}</div>:<><div className="sale-summary"><span><small>{t("customer")}</small><b>{sale.customer||t("walkInCustomer")}</b></span><span><small>{t("orderDate")}</small><b>{sale.date}</b></span><span><small>{t("currencyChoice")}</small><b>{sale.currency}</b></span><span><small>{t("salesTotal")}</small><b>{money(sale.total,sale.currency)}</b></span></div><div className="table-wrap detail-table"><table><thead><tr><th>{t("product")}</th><th>{t("quantity")}</th><th>{t("unitPrice")}</th><th>{t("total")}</th></tr></thead><tbody>{items.map(item=><tr key={item.id}><td><b>{item.sku}</b><br/><small>{item.name}</small></td><td>{item.quantity}</td><td>{money(item.price,sale.currency)}</td><td>{money(item.quantity*item.price,sale.currency)}</td></tr>)}</tbody></table></div></>}</Modal>;
+}
+
+function SettlementPage({sale,loading,error,onCancel,onSubmit}) {
+  const {t}=useI18n();
+  const [bookedOn,setBookedOn]=useState(localDateValue),[method,setMethod]=useState("cash"),[amount,setAmount]=useState(""),[note,setNote]=useState(""),[formError,setFormError]=useState(""),[saving,setSaving]=useState(false),[toast,setToast]=useState("");
+  const balance=Number(sale?.balance||0),paidTotal=Number(sale?.paidTotal||0);
+  useEffect(()=>{setAmount(balance>0?String(Number(balance.toFixed(2))):"")},[sale?.databaseId,balance]);
+  const reset=()=>{setBookedOn(localDateValue());setMethod("cash");setAmount(balance>0?String(Number(balance.toFixed(2))):"");setNote("");setFormError("");setToast("")};
+  const save=async(printAfter=false)=>{
+    const value=Number(amount);
+    if(!Number.isFinite(value)||value<=0||value>balance+0.0001)return setFormError(t("invalidPaymentAmount"));
+    setSaving(true);setFormError("");setToast("");
+    try{await onSubmit({amount:value,method,bookedOn,note:note.trim()});setNote("");setToast(t("paymentSaved"));if(printAfter)setTimeout(()=>window.print(),50)}catch(requestError){setFormError(`${t("paymentSaveFailed")}：${requestError.message}`)}finally{setSaving(false)}
+  };
+  if(loading)return <Page><div className="settlement-page panel"><div className="empty">{t("loading")}</div></div></Page>;
+  if(error||!sale)return <Page><div className="settlement-page panel"><div className="form-error detail-error">{error||t("dataLoadFailed")}</div><div className="settlement-footer"><button className="outline" onClick={onCancel}>{t("backToSales")}</button></div></div></Page>;
+  return <Page><section className="settlement-page panel">
+    <h2>{t("orderSettlement")}</h2>
+    <div className="settlement-summary"><span><small>{t("customer")}</small><b>{sale.customer||t("walkInCustomer")}</b></span><span><small>{t("salesOrderNo")}</small><b>{sale.id}</b></span><span><small>{t("salesperson")}</small><b>{sale.salesperson||"—"}</b></span><span><small>{t("salesTotal")}</small><b>{money(sale.total,sale.currency)}</b></span><span><small>{t("amountPaid")}</small><b className="stock-ok">{money(paidTotal,sale.currency)}</b></span><span><small>{t("amountDue")}</small><b className={balance>0?"amount-due":"stock-ok"}>{money(balance,sale.currency)}</b></span></div>
+    <div className="settlement-form">
+      <label>{t("bookingDate")}<input type="date" value={bookedOn} onChange={event=>setBookedOn(event.target.value)}/></label>
+      <label>{t("financeCategory")}<select value="sales_income" disabled><option value="sales_income">{t("salesIncome")}</option></select></label>
+      <label>{t("paymentMethod")}<select value={method} onChange={event=>setMethod(event.target.value)}><option value="cash">{t("cash")}</option><option value="bank_transfer">{t("bankTransfer")}</option></select></label>
+      <label className="settlement-amount">{t("paymentAmount")}<div><input type="number" min="0.01" max={balance} step="0.01" value={amount} disabled={balance<=0} onChange={event=>setAmount(event.target.value)}/><span>{sale.currency}</span><button type="button" className="outline" disabled={balance<=0} onClick={()=>setAmount(String(Number(balance.toFixed(2))))}>{t("payInFull")}</button></div></label>
+      <label className="settlement-note">{t("salesNote")}<textarea maxLength="1000" value={note} onChange={event=>setNote(event.target.value)} placeholder={t("paymentNotePlaceholder")}/></label>
+    </div>
+    {formError&&<div className="form-error settlement-feedback">{formError}</div>}
+    {toast&&<div className="collector-success settlement-feedback"><Check size={16}/>{toast}</div>}
+    <div className="settlement-footer"><button className="primary" disabled={saving||balance<=0} onClick={()=>save(false)}><CircleDollarSign size={16}/>{saving?t("saving"):t("settleNow")}</button><button className="outline" disabled={saving||balance<=0} onClick={()=>save(true)}><Printer size={16}/>{t("settleAndPrint")}</button><button className="outline" disabled={saving} onClick={reset}>{t("resetImport")}</button><button className="outline" disabled={saving} onClick={onCancel}>{t("cancel")}</button></div>
+    <div className="settlement-history"><div className="settlement-history-title"><b>{t("paymentHistory")}</b><span>{sale.payments.length} {t("paymentRecords")}</span></div>{sale.payments.length?<div className="table-wrap"><table><thead><tr><th>{t("bookingDate")}</th><th>{t("paymentMethod")}</th><th>{t("paymentAmount")}</th><th>{t("salesNote")}</th><th>{t("operator")}</th></tr></thead><tbody>{sale.payments.map(payment=><tr key={payment.id}><td>{payment.bookedOn}</td><td>{t(payment.method==="bank_transfer"?"bankTransfer":"cash")}</td><td><b>{money(payment.amount,sale.currency)}</b></td><td>{payment.note||"—"}</td><td>{payment.createdBy}</td></tr>)}</tbody></table></div>:<div className="empty settlement-empty">{t("noPayments")}</div>}</div>
+  </section></Page>;
 }
 
 function POS({products,customers,sale,onSaveSale,onUpdateSale,onCloseEdit}) {
@@ -315,13 +354,13 @@ export function App() {
   const [session,setSession]=useState(getStoredSession);
   const [page,setPage]=useState("dashboard"),[menuOpen,setMenuOpen]=useState(false);
   const [products,setProducts]=useState([]),[customers,setCustomers]=useState([]),[purchases,setPurchases]=useState([]),[sales,setSales]=useState([]),[users,setUsers]=useState([]);
-  const [editingSale,setEditingSale]=useState(null);
+  const [editingSale,setEditingSale]=useState(null),[settlementSale,setSettlementSale]=useState(null),[settlementLoading,setSettlementLoading]=useState(false),[settlementError,setSettlementError]=useState("");
   const [salesFilters,setSalesFilters]=useState(defaultSalesFilters);
   const [dashboardSummary,setDashboardSummary]=useState(null),[reportSummary,setReportSummary]=useState(null);
   const [dataLoading,setDataLoading]=useState(false),[dataError,setDataError]=useState("");
   useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
   useEffect(()=>{if(page!=="scanSales")setEditingSale(null)},[page]);
-  const logout=()=>{clearStoredSession();setSession(null);setProducts([]);setCustomers([]);setPurchases([]);setSales([]);setUsers([]);setEditingSale(null);setSalesFilters(defaultSalesFilters())};
+  const logout=()=>{clearStoredSession();setSession(null);setProducts([]);setCustomers([]);setPurchases([]);setSales([]);setUsers([]);setEditingSale(null);setSettlementSale(null);setSalesFilters(defaultSalesFilters())};
   const handleError=(error)=>{if(error instanceof ApiError&&error.status===401){logout();return}setDataError(error.message)};
   const loadAll=async(token=session?.token)=>{if(!token)return;setDataLoading(true);setDataError("");try{const nextIdentity=await fetchCurrentUser(token),role=nextIdentity.role;const [nextProducts,nextCustomers,nextPurchases,nextSales,nextDashboard,nextReport,nextUsers]=await Promise.all([fetchProducts(token),["admin","sales","finance"].includes(role)?fetchCustomers(token):Promise.resolve([]),["admin","purchasing","warehouse","finance"].includes(role)?fetchPurchases(token):Promise.resolve([]),["admin","sales","finance"].includes(role)?fetchSales(token,salesFilters):Promise.resolve([]),fetchDashboard(token),["admin","finance"].includes(role)?fetchReportSummary(token):Promise.resolve(null),role==="admin"?fetchUsers(token):Promise.resolve([])]);setProducts(nextProducts);setCustomers(nextCustomers);setPurchases(nextPurchases);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);setUsers(nextUsers);const refreshedSession={...session,user:nextIdentity};storeSession(refreshedSession);setSession(refreshedSession)}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const loadProducts=async(search="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setProducts(await fetchProducts(session.token,search))}catch(error){handleError(error)}finally{setDataLoading(false)}};
@@ -339,12 +378,14 @@ export function App() {
   const addSale=async(sale)=>{const created=await createSaleRequest(session.token,sale);const [nextProducts,nextSales,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchSales(session.token,salesFilters),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);return created};
   const loadSaleDetail=async id=>fetchSale(session.token,id);
   const openSaleForEdit=async id=>{const detail=await fetchSale(session.token,id);setEditingSale(detail);setPage("scanSales");return detail};
+  const openSettlement=async sale=>{setSettlementSale(sale);setSettlementError("");setSettlementLoading(true);setPage("saleSettlement");try{setSettlementSale(await fetchSale(session.token,sale.databaseId))}catch(error){setSettlementError(error.message)}finally{setSettlementLoading(false)}};
+  const addSalePayment=async payment=>{if(!settlementSale?.databaseId)return;await createSalePaymentRequest(session.token,settlementSale.databaseId,payment);const [detail,nextSales]=await Promise.all([fetchSale(session.token,settlementSale.databaseId),fetchSales(session.token,salesFilters)]);setSettlementSale(detail);setSales(nextSales);return detail};
   const changeSale=async(id,sale)=>{await updateSaleRequest(session.token,id,sale);const [nextProducts,nextSales,nextDashboard,nextReport,detail]=await Promise.all([fetchProducts(session.token),fetchSales(session.token,salesFilters),fetchDashboard(session.token),refreshReport(),fetchSale(session.token,id)]);setProducts(nextProducts);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);setEditingSale(detail);return detail};
   const changeSaleStatus=async(id,changes)=>{await updateSaleStatusRequest(session.token,id,changes);setSales(current=>current.map(sale=>sale.databaseId===id?{...sale,...changes}:sale));if(typeof changes.stockDeducted==="boolean"){try{const [nextProducts,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setDashboardSummary(nextDashboard);setReportSummary(nextReport)}catch(error){handleError(error)}}};
   const addUser=async(user)=>{const created=await createUserRequest(session.token,user);setUsers(current=>[...current,created])};
   const changeUser=async(id,changes)=>{const updated=await updateUserRequest(session.token,id,changes);setUsers(current=>current.map(user=>user.id===updated.id?updated:user))};
   if(!session?.user)return <Login onLogin={login}/>;
-  const salesPage=<Sales sales={sales} filters={salesFilters} onRefresh={refreshSales} onLoadDetail={loadSaleDetail} onToggleStatus={changeSaleStatus} loading={dataLoading} error={dataError} canUpdateStatus={["admin","sales"].includes(session.user.role)}/>;
+  const salesPage=<Sales sales={sales} filters={salesFilters} onRefresh={refreshSales} onLoadDetail={loadSaleDetail} onToggleStatus={changeSaleStatus} onOpenSettlement={openSettlement} loading={dataLoading} error={dataError} canUpdateStatus={["admin","sales"].includes(session.user.role)} canSettle={["admin","sales","finance"].includes(session.user.role)}/>;
   const content=({
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={setPage}/>,
     products:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
@@ -352,6 +393,7 @@ export function App() {
     inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,
     sales:salesPage,pos:<POS products={products} customers={customers} sale={editingSale} onSaveSale={addSale} onUpdateSale={changeSale} onCloseEdit={()=>setEditingSale(null)}/>,
+    saleSettlement:<SettlementPage sale={settlementSale} loading={settlementLoading} error={settlementError} onSubmit={addSalePayment} onCancel={()=>{setSettlementSale(null);setSettlementError("");setPage("sales")}}/>,
     collectorSales:<CollectorSales products={products} onSaveSale={addSale} onImported={openSaleForEdit}/>,
     reports:<Reports products={products} summary={reportSummary}/>,
     users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,

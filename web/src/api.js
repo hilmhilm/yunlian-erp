@@ -103,6 +103,8 @@ const normalizeSale = (sale) => ({
   itemCount: Number(sale.item_count || 0),
   currency: sale.currency || "HUF",
   notes: sale.notes || "",
+  paidTotal: Number(sale.paid_total ?? sale.paidTotal ?? 0),
+  balance: Number(sale.balance ?? Math.max(Number(sale.total || 0)-Number(sale.paid_total ?? sale.paidTotal ?? 0),0)),
   stockDeducted: Boolean(sale.stock_deducted),
   delivered: Boolean(sale.delivered),
   settled: Boolean(sale.settled),
@@ -115,6 +117,14 @@ const normalizeSaleDetail = (sale) => ({
     productId: Number(item.product_id),
     quantity: Number(item.quantity || 0),
     price: Number(item.price || 0),
+  })),
+  payments: (sale.payments || []).map(payment => ({
+    ...payment,
+    amount: Number(payment.amount || 0),
+    method: payment.method,
+    bookedOn: payment.booked_on,
+    createdBy: payment.created_by,
+    createdAt: payment.created_at,
   })),
 });
 
@@ -200,6 +210,12 @@ export async function updateSaleStatus(token, saleId, changes) {
   return normalizeSale(await request(`/sales/${saleId}/status`, {
     token, method: "PATCH", body: JSON.stringify(changes),
   }));
+}
+
+export async function createSalePayment(token, saleId, payment) {
+  return request(`/sales/${saleId}/payments`, {
+    token, method: "POST", body: JSON.stringify(payment),
+  });
 }
 
 export async function fetchDashboard(token) {
