@@ -150,11 +150,11 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
 
 app.get("/api/products", asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
-  const result = await pool.query("select p.*,coalesce(sum(si.quantity),0)::int sales_quantity from products p left join sale_items si on si.product_id=p.id where p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1 group by p.id order by p.id desc limit 500", [q]);
+  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1 order by p.id desc limit 500", [q]);
   res.json(result.rows);
 }));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{
-  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity from products p where p.id=$1",[req.params.id]);
+  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.id=$1",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
   res.json({...product.rows[0],movements:movements.rows});
@@ -171,8 +171,8 @@ app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), as
   if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||[cost,priceHuf,priceEur,priceUsd].some(value=>value!==null&&(!Number.isFinite(value)||value<0)))return res.status(400).json({error:"invalid product data"});
   const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),cost=coalesce($9,cost),price=coalesce($10,price),price_eur=coalesce($11,price_eur),price_usd=coalesce($12,price_usd),updated_at=now() where id=$13 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
-  const sales=await pool.query("select coalesce(sum(quantity),0)::int sales_quantity from sale_items where product_id=$1",[req.params.id]);
-  res.json({...result.rows[0],sales_quantity:sales.rows[0].sales_quantity});
+  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  res.json({...result.rows[0],...statistics.rows[0]});
 }));
 app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
   const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase();
@@ -188,8 +188,8 @@ app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse",
   catch(error){await unlink(filePath).catch(()=>{});throw error}
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const sales=await pool.query("select coalesce(sum(quantity),0)::int sales_quantity from sale_items where product_id=$1",[req.params.id]);
-  res.json({...updated.rows[0],sales_quantity:sales.rows[0].sales_quantity});
+  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  res.json({...updated.rows[0],...statistics.rows[0]});
 }));
 app.get("/api/i18n/locales", asyncRoute(async (_req,res)=>{
   res.json((await pool.query("select locale,display_name,is_default from supported_locales where enabled=true order by is_default desc,locale")).rows);

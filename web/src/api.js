@@ -61,6 +61,7 @@ const normalizeProduct = (product) => ({
   priceEur: Number(product.price_eur ?? product.priceEur ?? 0),
   priceUsd: Number(product.price_usd ?? product.priceUsd ?? 0),
   stock: Number(product.stock || 0),
+  purchaseQuantity: Number(product.purchase_quantity ?? product.purchaseQuantity ?? 0),
   salesQuantity: Number(product.sales_quantity ?? product.salesQuantity ?? 0),
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
