@@ -44,7 +44,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.16-4";
+const uiVersion = "2026.07.16-5";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -284,8 +284,8 @@ function POS({products,customers,sale,onSaveSale,onUpdateSale,onCloseEdit,onOpen
 function DeliveryDetailsModal({customer,sale,saving,onClose,onSave}) {
   const {t}=useI18n();
   const customerAddress=customer?.address||"",city=customer?.city||"",defaultAddress=sale?.deliveryAddress||[customerAddress,city&&!customerAddress.toLocaleLowerCase().includes(city.toLocaleLowerCase())?city:""].filter(Boolean).join(", ");
-  const [form,setForm]=useState({deliveryPhone:sale?.deliveryPhone||customer?.phone||"",vehiclePlate:sale?.vehiclePlate||"",deliveryAddress:defaultAddress});
-  return <Modal title={t("deliveryInformation")} onClose={onClose}><div className="delivery-fields"><label>{t("deliveryPhone")}<input autoFocus maxLength="100" value={form.deliveryPhone} onChange={event=>setForm({...form,deliveryPhone:event.target.value})} placeholder={t("deliveryPhonePlaceholder")}/></label><label>{t("vehiclePlate")}<input maxLength="50" value={form.vehiclePlate} onChange={event=>setForm({...form,vehiclePlate:event.target.value})} placeholder={t("vehiclePlatePlaceholder")}/></label><label>{t("deliveryAddress")}<textarea maxLength="500" value={form.deliveryAddress} onChange={event=>setForm({...form,deliveryAddress:event.target.value})} placeholder={t("deliveryAddressPlaceholder")}/></label></div><div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary save-print" onClick={()=>onSave(form)} disabled={saving}><Printer size={16}/>{saving?t("saving"):t("saveAndPrint")}</button></div></Modal>;
+  const [form,setForm]=useState({deliveryPhone:sale?.deliveryPhone||customer?.phone||"",vehiclePlate:sale?.vehiclePlate||"",deliveryAddress:defaultAddress,notes:sale?.notes||""});
+  return <Modal title={t("deliveryInformation")} onClose={onClose}><div className="delivery-fields"><label>{t("deliveryPhone")}<input autoFocus maxLength="100" value={form.deliveryPhone} onChange={event=>setForm({...form,deliveryPhone:event.target.value})} placeholder={t("deliveryPhonePlaceholder")}/></label><label>{t("vehiclePlate")}<input maxLength="50" value={form.vehiclePlate} onChange={event=>setForm({...form,vehiclePlate:event.target.value})} placeholder={t("vehiclePlatePlaceholder")}/></label><label>{t("deliveryAddress")}<textarea maxLength="500" value={form.deliveryAddress} onChange={event=>setForm({...form,deliveryAddress:event.target.value})} placeholder={t("deliveryAddressPlaceholder")}/></label><label>{t("salesNote")}<textarea maxLength="1000" value={form.notes} onChange={event=>setForm({...form,notes:event.target.value})} placeholder={t("deliveryNotePlaceholder")}/></label></div><div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary save-print" onClick={()=>onSave(form)} disabled={saving}><Printer size={16}/>{saving?t("saving"):t("saveAndPrint")}</button></div></Modal>;
 }
 
 function DeliveryNote({sale,loading,error,onBack}) {
