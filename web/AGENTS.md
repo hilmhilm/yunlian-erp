@@ -14,3 +14,4 @@ When implementing from a selected generated mock, treat that image as the source
 - The supported business currencies are fixed to HUF, EUR, and USD. Every product has an independent sales price in each currency, and sales flows must preserve the selected currency.
 - Sales settlement is ledger-based: every cash or bank-transfer receipt is stored as an immutable payment record. Paid and due amounts and the unpaid/partial/paid status are derived from those records; they must never be manually toggled.
 - Every saved scan-sale can carry a delivery contact phone, vehicle plate, delivery address and delivery date. These fields must persist with the sale and remain available for an A4 delivery note and later reprints from the sales list.
+- Main navigation uses browser-style page tabs. Opening a menu item preserves existing pages, tabs retain their local UI state while inactive, each business tab can be closed independently, and the dashboard tab remains fixed.

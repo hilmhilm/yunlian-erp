@@ -38,6 +38,55 @@ final result: passed
 
 ---
 
+# Design QA — 浏览器式多页面标签
+
+- source visual truth path: `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-8131a633-6ebd-45f7-bfa0-323f6a67c6e4.png`
+- implementation screenshot path: `C:/Users/Akos/AppData/Local/Temp/yunlian-erp-tabs-final.png`
+- viewport: 769 × 698 desktop
+- state: authenticated sales-order list with dashboard, sales-order list and products tabs open; sales-order list active
+- full-view comparison evidence: the source image and browser-rendered implementation were opened together in the same comparison input; the implementation's full viewport was also inspected at native resolution
+- focused region comparison evidence: a separate crop was unnecessary after the final pass because the 28 px tab strip and its 12 px labels were clearly readable at native resolution in the full browser capture
+
+**Findings**
+
+- No actionable P0/P1/P2 differences remain for the requested multi-page tab scope.
+- Fonts and typography: the existing Microsoft YaHei/Noto Sans SC/Arial stack, compact 12 px tab labels and regular-weight close icons match the reference's dense ERP styling.
+- Spacing and layout rhythm: tabs form one horizontal strip, use compact rectangular borders, preserve a fixed dashboard tab and scroll horizontally when the strip exceeds the viewport.
+- Colors and visual tokens: inactive tabs remain white with blue-grey borders; the active tab uses the reference's green fill, white text and small white state dot.
+- Image quality and asset fidelity: the reference contains no raster assets. The close control uses the project's existing Lucide icon library rather than a text-glyph substitute.
+- Copy and content: each open page is labeled with its localized page title. Close controls have localized accessible names in Simplified Chinese, English and Hungarian.
+
+**Interaction and runtime checks**
+
+- Opened the sales-order list and products from the sidebar and confirmed neither replaced the other.
+- Entered `保留的查询条件` in the sales search box, switched to products, switched back, and confirmed the search state remained intact.
+- Closed a background tab without changing the active page, then closed the active sales tab and confirmed the dashboard remained available.
+- Confirmed repeated navigation activates an existing tab instead of creating duplicates.
+- Browser console errors checked: none; only Vite connection and React development information messages were present.
+
+**Comparison history**
+
+- Initial pass found one P2 mismatch: the active-state dot inherited the legacy `.tabs span` padding and rendered as a wide oval.
+- Fix: added a specific `.tabs .page-tab-dot` override for 6 × 6 px dimensions, zero border and padding, and a circular radius.
+- Post-fix evidence: the final browser capture shows the small circular dot, compact close icon, green active tab and white inactive tabs matching the reference.
+
+**Implementation Checklist**
+
+- [x] Browser-style multi-page tab opening and activation
+- [x] Independent close controls with adjacent-tab fallback
+- [x] Fixed dashboard tab
+- [x] Preserved inactive-page component state
+- [x] Horizontal overflow handling and mobile label truncation
+- [x] Three-language accessible tab labels
+
+**Follow-up Polish**
+
+- P3: allow optional drag-and-drop tab reordering if users later need to organize very large work sessions.
+
+final result: passed
+
+---
+
 # Design QA — A4 送货单
 
 - source visual truth: `C:/Users/Akos/Downloads/Vs20260715-7 (ROSZIK ADRIENN).pdf` and `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-f248f501-61e5-4161-adfd-7d32ee3bef36.png`
