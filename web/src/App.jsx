@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
@@ -11,7 +11,7 @@ import {
   createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
   createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProducts, fetchSale,
   fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
-  login as loginRequest, storeSession, updateProduct as updateProductRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
+  login as loginRequest, storeSession, updateProduct as updateProductRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
 const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
@@ -44,7 +44,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.16-2";
+const uiVersion = "2026.07.16-3";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -131,16 +131,27 @@ function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, pl
 function DataTable({ columns, rows, renderCell, onEdit, onDetail, onPrint }) { const {t}=useI18n(); return <div className="table-wrap"><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions">{onEdit&&<button title={t("edit")} onClick={()=>onEdit(row)}><Pencil size={16}/></button>}{onDetail&&<button title={t("details")} onClick={()=>onDetail(row)}><ClipboardList size={16}/></button>}{onPrint&&<button title={t("printDeliveryNote")} onClick={()=>onPrint(row)}><Printer size={16}/></button>}</div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c],r.currency):r[c]}</span>)}</div>)}</div>; }
 
-function Products({ products, onCreate, onUpdate, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true }) {
+function ProductImageCell({product,onUpload,canUpload}) {
+  const {t}=useI18n();
+  const [uploading,setUploading]=useState(false);
+  const inputRef=useRef(null);
+  const upload=async event=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;if(!["image/jpeg","image/png","image/webp"].includes(file.type)||file.size>5*1024*1024)return onUpload(product,null,t("invalidProductImage"));setUploading(true);try{await onUpload(product,file)}finally{setUploading(false)}};
+  if(!canUpload)return product.imageUrl?<img className="product-thumbnail" src={product.imageUrl} alt={product.name} loading="lazy"/>:<span className="product-image-placeholder"><Plus size={18}/></span>;
+  const actionLabel=`${t(product.imageUrl?"replaceProductImage":"uploadProductImage")}：${product.name}`;
+  return <span className="product-image-picker"><button type="button" className={`product-image-button ${product.imageUrl?"has-image":""}`} aria-label={actionLabel} disabled={uploading} title={actionLabel} onClick={()=>inputRef.current?.click()}>{product.imageUrl?<img src={product.imageUrl} alt="" loading="lazy"/>:<Plus size={20}/>} {uploading&&<span className="product-image-loading"/>}</button><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={upload}/></span>;
+}
+
+function Products({ products, onCreate, onUpdate, onUploadImage, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true, canUpload=false }) {
   const { t } = useI18n();
-  const [search,setSearch]=useState(""),[editor,setEditor]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState("");
+  const [search,setSearch]=useState(""),[editor,setEditor]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(""),[imageError,setImageError]=useState("");
   const filtered=products.filter(p=>`${p.sku}${p.barcode}${p.name}${p.category}`.toLowerCase().includes(search.toLowerCase()));
   const save=async(data)=>{if(editor?.id)await onUpdate(editor.id,data);else await onCreate(data);setEditor(null)};
   const openDetail=async product=>{setDetail({id:product.id,sku:product.sku,name:product.name});setDetailLoading(true);setDetailError("");try{setDetail(await onLoadDetail(product.id))}catch(e){setDetailError(e.message)}finally{setDetailLoading(false)}};
+  const uploadImage=async(product,file,validationError="")=>{setImageError(validationError);if(validationError||!file)return;try{await onUploadImage(product.id,file)}catch(uploadError){setImageError(`${t("productImageUploadFailed")}：${uploadError.message}`)}};
   const columns=inventoryOnly?[
     {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
-  ]:[{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:t("productCost")},{key:"priceHuf",label:t("priceHuf")},{key:"priceEur",label:t("priceEur")},{key:"priceUsd",label:t("priceUsd")},{key:"stock",label:"入库统计"}];
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setEditor({}):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{error&&<div className="form-error page-error">{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="cost"?money(r.cost,"EUR"):c.key==="priceHuf"?money(r.priceHuf,"HUF"):c.key==="priceEur"?money(r.priceEur,"EUR"):c.key==="priceUsd"?money(r.priceUsd,"USD"):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]} onEdit={canEdit&&!inventoryOnly?setEditor:undefined} onDetail={openDetail}/>{editor&&<ProductModal product={editor.id?editor:null} onClose={()=>setEditor(null)} onSave={save}/>} {detail&&<ProductDetailModal product={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</Page>;
+  ]:[{key:"imageUrl",label:t("productImage")},{key:"sku",label:"货号"},{key:"barcode",label:"条码"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"cost",label:t("productCost")},{key:"priceHuf",label:t("priceHuf")},{key:"priceEur",label:t("priceEur")},{key:"priceUsd",label:t("priceUsd")},{key:"stock",label:"入库统计"}];
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setEditor({}):undefined} onSearch={()=>onLoad(search)} onRefresh={()=>{setSearch("");onLoad("")}} busy={loading}/>{(imageError||error)&&<div className="form-error page-error">{imageError||<>{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search)}>{t("retry")}</button></>}</div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="imageUrl"?<ProductImageCell product={r} onUpload={uploadImage} canUpload={canUpload}/>:c.key==="cost"?money(r.cost,"EUR"):c.key==="priceHuf"?money(r.priceHuf,"HUF"):c.key==="priceEur"?money(r.priceEur,"EUR"):c.key==="priceUsd"?money(r.priceUsd,"USD"):c.key==="stock"?<b className={r.stock<20?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]} onEdit={canEdit&&!inventoryOnly?setEditor:undefined} onDetail={openDetail}/>{editor&&<ProductModal product={editor.id?editor:null} onClose={()=>setEditor(null)} onSave={save}/>} {detail&&<ProductDetailModal product={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</Page>;
 }
 
 const productFields=[
@@ -396,6 +407,7 @@ export function App() {
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
   const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [nextDashboard,nextReport]=await Promise.all([fetchDashboard(session.token),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
   const changeProduct=async(id,product)=>{const updated=await updateProductRequest(session.token,id,product);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));return updated};
+  const uploadProductImage=async(id,file)=>{const updated=await uploadProductImageRequest(session.token,id,file);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));return updated};
   const loadProductDetail=async id=>fetchProduct(session.token,id);
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
   const addPurchase=async(purchase)=>{await createPurchaseRequest(session.token,purchase);const [nextProducts,nextPurchases,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchPurchases(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setPurchases(nextPurchases);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
@@ -412,7 +424,7 @@ export function App() {
   if(!session?.user)return <Login onLogin={login}/>;
   const contentByTarget={
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={openPage}/>,
-    products:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
+    products:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onUploadImage={uploadProductImage} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)} canUpload={["admin","purchasing","warehouse","sales"].includes(session.user.role)}/>,
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,

@@ -10,6 +10,7 @@ export default defineConfig({
     allowedHosts: ["terminal.local"],
     proxy: {
       "/api": "http://localhost:3000",
+      "/uploads": "http://localhost:3000",
     },
     warmup: {
       clientFiles: ["./src/main.jsx"],

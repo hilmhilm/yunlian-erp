@@ -62,6 +62,7 @@ const normalizeProduct = (product) => ({
   stock: Number(product.stock || 0),
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
+  imageUrl: product.image_url ?? product.imageUrl ?? "",
   movements: (product.movements || []).map(movement => ({
     ...movement,
     quantity: Number(movement.quantity || 0),
@@ -165,6 +166,15 @@ export async function updateProduct(token, id, product) {
     token,
     method: "PATCH",
     body: JSON.stringify(product),
+  }));
+}
+
+export async function uploadProductImage(token, id, file) {
+  return normalizeProduct(await request(`/products/${id}/image`, {
+    token,
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
   }));
 }
 

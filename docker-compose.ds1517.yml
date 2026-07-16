@@ -41,6 +41,9 @@ services:
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Europe/Budapest}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - ./data/product-images:/app/uploads
     depends_on:
       db:
         condition: service_healthy

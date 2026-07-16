@@ -5,6 +5,7 @@
 
 # Runtime and production data
 data/
+server/uploads/
 backups/
 *.sql.gz
 *.dump

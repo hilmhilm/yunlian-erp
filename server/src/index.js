@@ -1,6 +1,9 @@
 import express from "express";
 import cors from "cors";
 import crypto from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import pg from "pg";
 import { runMigrations } from "./migrate.js";
@@ -9,6 +12,7 @@ const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const businessTimezone = process.env.BUSINESS_TIMEZONE || "Europe/Budapest";
+const uploadDirectory = process.env.UPLOAD_DIR || fileURLToPath(new URL("../uploads", import.meta.url));
 const secret = process.env.JWT_SECRET;
 if (!secret || secret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
 const pool = new Pool(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {
@@ -22,6 +26,7 @@ const pool = new Pool(process.env.DATABASE_URL ? { connectionString: process.env
 app.set("trust proxy", 1);
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(",") || true }));
 app.use(express.json({ limit: "2mb" }));
+app.use("/uploads", express.static(uploadDirectory, { maxAge: "7d", immutable: true }));
 
 const scrypt = promisify(crypto.scrypt);
 const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
@@ -167,6 +172,22 @@ app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), as
   const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),category=coalesce($4,category),supplier=coalesce($5,supplier),unit=coalesce($6,unit),box_size=coalesce($7,box_size),cost=coalesce($8,cost),price=coalesce($9,price),price_eur=coalesce($10,price_eur),price_usd=coalesce($11,price_usd),updated_at=now() where id=$12 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
   res.json(result.rows[0]);
+}));
+app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
+  const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase();
+  const extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
+  if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"only non-empty JPG, PNG and WebP images are supported"});
+  const product=await pool.query("select id,image_url from products where id=$1",[req.params.id]);
+  if(!product.rowCount)return res.status(404).json({error:"product not found"});
+  const fileName=`product-${req.params.id}-${crypto.randomUUID()}.${extensions[mimeType]}`;
+  const filePath=path.join(uploadDirectory,fileName);
+  await writeFile(filePath,req.body,{flag:"wx"});
+  let updated;
+  try{updated=await pool.query("update products set image_url=$1,updated_at=now() where id=$2 returning *",[`/uploads/${fileName}`,req.params.id])}
+  catch(error){await unlink(filePath).catch(()=>{});throw error}
+  const previous=product.rows[0].image_url;
+  if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
+  res.json(updated.rows[0]);
 }));
 app.get("/api/i18n/locales", asyncRoute(async (_req,res)=>{
   res.json((await pool.query("select locale,display_name,is_default from supported_locales where enabled=true order by is_default desc,locale")).rows);
@@ -387,6 +408,7 @@ app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async
 app.use((err,_req,res,_next)=>{console.error(err);if(err.code==="23505")return res.status(409).json({error:"记录已存在"});res.status(err.status||500).json({error:err.message||"server error"})});
 
 async function start() {
+  await mkdir(uploadDirectory,{recursive:true});
   await runMigrations(pool);
   await ensureAdminUser();
   app.listen(port,"0.0.0.0",()=>console.log(`ERP API listening on ${port}`));

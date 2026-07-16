@@ -42,7 +42,7 @@ http://NAS局域网IP:8088
 
 ### 已有安装升级
 
-升级前先备份数据库，然后在 File Station 覆盖项目代码（保留 NAS 上原有 `.env` 和 `data/postgres`），再通过 DSM「任务计划」以 root 重新运行 `deploy-ds1517.sh`。API 容器启动时会自动执行尚未应用的版本化数据库迁移，不需要手工执行 SQL，也不要删除或重建数据库目录。
+升级前先备份数据库和产品图片，然后在 File Station 覆盖项目代码（保留 NAS 上原有 `.env`、`data/postgres` 和 `data/product-images`），再通过 DSM「任务计划」以 root 重新运行 `deploy-ds1517.sh`。API 容器启动时会自动执行尚未应用的版本化数据库迁移，不需要手工执行 SQL，也不要删除或重建数据目录。
 
 ## 四、HTTPS 与公网访问
 
@@ -63,7 +63,7 @@ PostgreSQL 数据保存在：
 
 部署脚本会把该目录设置为 PostgreSQL Alpine 容器用户 `70:70`；请勿在 File Station 中手工改回普通 DSM 用户所有权。
 
-将 `/volume2/docker/erp-nas` 加入 Hyper Backup。数据库正在写入时，仅复制文件不等于一致性备份；正式上线后还应增加定时 `pg_dump` 任务。
+将 `/volume2/docker/erp-nas` 加入 Hyper Backup，其中 `data/product-images` 保存产品图片。数据库正在写入时，仅复制文件不等于一致性备份；正式上线后还应增加定时 `pg_dump` 任务。
 
 ## 六、常用维护命令
 

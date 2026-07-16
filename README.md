@@ -7,6 +7,7 @@
 - 多用户登录入口与会话 API
 - 商品、条码、分类、多商品采购入库和实时库存
 - 产品列表的编辑与详情操作已接入真实 API；详情显示完整产品资料和最近库存流水，库存不能绕过流水直接修改
+- 产品列表显示缩略图；无图商品显示加号，可从本地选择 JPG、PNG 或 WebP 图片上传和更换，单张最大 5MB
 - 每个产品支持福林 HUF、欧元 EUR、美元 USD 三个独立销售价格；扫码销售和采集器销售可选择货币，销售单会保存所用货币
 - 客户资料、销售单、扫码销售、采集器批量销售与事务化扣减库存
 - “扫码零售/扫码销售”菜单已合并为“扫码销售”；新增“采集器销售”，支持按行接收货号或条码与数量、检查匹配结果、合并重复商品并导入生成真实销售单
@@ -49,13 +50,13 @@ DS1517+ 与 DSM 7.1.1 用户请优先阅读 [`README-DS1517+.md`](README-DS1517+
 4. 构建并启动后访问 `http://NAS-IP:8088`。
 5. 使用 `.env` 中的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 登录。
 
-已有安装升级时不要删除 `data/postgres`。覆盖项目文件后再次运行部署脚本，API 会自动执行尚未应用的迁移；管理员密码仍以 NAS `.env` 中的 `ADMIN_PASSWORD` 为准。
+已有安装升级时不要删除 `data/postgres` 或 `data/product-images`。覆盖项目文件后再次运行部署脚本，API 会自动执行尚未应用的迁移；管理员密码仍以 NAS `.env` 中的 `ADMIN_PASSWORD` 为准。
 
 如需公网访问，建议使用群晖反向代理绑定域名并启用 Let's Encrypt HTTPS；数据库和 API 不应直接暴露公网端口。
 
 ## 数据备份
 
-定期备份 Docker 卷 `postgres_data`。升级前建议额外执行 PostgreSQL 逻辑备份；业务附件可在后续版本增加独立对象存储卷。
+定期备份 Docker 卷 `postgres_data` 和 `product_images`。群晖部署需要同时备份 `data/postgres` 与 `data/product-images`；升级前建议额外执行 PostgreSQL 逻辑备份。
 
 ## 本地前端预览
 
