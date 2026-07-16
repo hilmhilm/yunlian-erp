@@ -38,6 +38,45 @@ final result: passed
 
 ---
 
+# Design QA — A4 送货单
+
+- source visual truth: `C:/Users/Akos/Downloads/Vs20260715-7 (ROSZIK ADRIENN).pdf` and `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-f248f501-61e5-4161-adfd-7d32ee3bef36.png`
+- implementation screenshot: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/delivery-note-viewport.png`
+- full-view comparison evidence: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/delivery-note-comparison.png`
+- focused region comparison evidence: `C:/Users/Akos/.codex/visualizations/2026/07/14/019f5fdb-4a40-7ae1-9934-59d0a30a559c/delivery-note-focused-comparison.png`
+- viewport: 1265 × 712 desktop for interaction capture; A4 portrait sheet is 900 × 1273 CSS pixels and prints at 190 × 277 mm inside 10 mm page margins
+- state: newly saved HUF scan sale for ROSZIK ADRIENN with two products, persisted phone, vehicle plate and delivery address
+
+**Findings**
+
+- No actionable P0/P1/P2 visual differences remain for the requested delivery-note scope.
+- Fonts and typography: compact Arial/Microsoft YaHei print typography, centered letter-spaced title, bold totals and dense 9-11pt table text follow the supplied PDF.
+- Spacing and layout rhythm: A4 portrait proportions, top identity rule, two-column order/customer block, date/notes block, dense item table, totals and signature area follow the reference hierarchy.
+- Colors and tokens: the printable sheet is strictly black on white with thin rules; application blue is limited to the non-print toolbar.
+- Image quality and assets: the supplied reference's dynamic barcode/QR and product images are not substituted with fake assets. They remain a future enhancement once company-profile and product-image data exists.
+- Copy and content: the page includes all currently stored order, customer, delivery and product data, with localized Chinese, English and Hungarian labels.
+
+**Interaction and runtime checks**
+
+- Tested scan-sale creation with two products and a selected customer.
+- Confirmed the delivery dialog prefilled the customer's phone and address, accepted vehicle plate `ABC-123`, and “保存并打印” opened the saved delivery note.
+- Confirmed the delivery note showed both item lines, barcode, current stock, quantity, price, line total, quantity total and order total.
+- Confirmed the sales-list operation column exposes “查看送货单” for later reprints.
+- Browser console errors checked: none.
+
+**Comparison history**
+
+- Initial implementation matched the reference's A4 hierarchy and density with no actionable P0/P1/P2 correction required.
+
+**Follow-up Polish**
+
+- P3: add configurable company profile, order barcode and QR codes when company settings are implemented.
+- P3: add product thumbnails after the product model supports stored images.
+
+final result: passed
+
+---
+
 # Design QA — 销售订单结算
 
 - source visual truth path: `C:/Users/Akos/AppData/Local/Temp/codex-clipboard-485ffefb-bf68-45f0-975b-2ebc317a1fbe.png`

@@ -226,9 +226,9 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const sale=await pool.query("select s.*,c.name customer from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
-  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.name from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
+  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   const payments=await pool.query("select id,amount,method,booked_on,category,note,created_by,created_at from sale_payments where sale_id=$1 order by created_at desc,id desc",[req.params.id]);
   const paidTotal=payments.rows.reduce((sum,payment)=>sum+Number(payment.amount),0);
   res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
@@ -261,6 +261,7 @@ app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyn
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const notes=String(body.notes||"").trim().slice(0,1000);
+  const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
   const currency=String(body.currency||"HUF").toUpperCase();
   const currencies=new Set(["HUF","EUR","USD"]);
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
@@ -276,7 +277,7 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
     const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
     const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency) values($1,$2,$3,'已完成',$4,$5,$6) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency]);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
     for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
@@ -285,6 +286,7 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
 app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const notes=String(body.notes||"").trim().slice(0,1000);
+  const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
   const currency=String(body.currency||"HUF").toUpperCase();
   const currencies=new Set(["HUF","EUR","USD"]);
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
@@ -316,7 +318,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
     }
     await client.query("delete from sale_items where sale_id=$1",[req.params.id]);
     for(const item of pricedItems)await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[req.params.id,item.productId,item.quantity,item.price]);
-    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4 where id=$5 returning *",[body.customerId||null,total,notes,currency,req.params.id]);
+    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4,delivery_phone=$5,vehicle_plate=$6,delivery_address=$7 where id=$8 returning *",[body.customerId||null,total,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,req.params.id]);
     await client.query("commit");res.json(updated.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
