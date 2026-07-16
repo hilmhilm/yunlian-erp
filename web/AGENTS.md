@@ -17,3 +17,4 @@ When implementing from a selected generated mock, treat that image as the source
 - Main navigation uses browser-style page tabs. Opening a menu item preserves existing pages, tabs retain their local UI state while inactive, each business tab can be closed independently, and the dashboard tab remains fixed.
 - Product images are stored as files in the persistent uploads volume while PostgreSQL stores only randomized image URLs. Keep image uploads limited to JPG, PNG and WebP up to 5 MB, and never embed image binaries in the database.
 - Sales staff and administrators can open an existing order for editing from the sales-list action column; editing must reuse the scan-sale screen and update the original order rather than create a duplicate.
+- The product list has user-selectable columns persisted in the browser. Product name 2, net sales quantity, current inventory and creation time are available, while the default view stays intentionally compact.

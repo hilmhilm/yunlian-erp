@@ -53,6 +53,7 @@ async function request(path, { token, ...options } = {}) {
 
 const normalizeProduct = (product) => ({
   ...product,
+  name2: product.name2 || "",
   boxSize: Number(product.box_size ?? product.boxSize ?? 1),
   cost: Number(product.cost || 0),
   price: Number(product.price || 0),
@@ -60,6 +61,7 @@ const normalizeProduct = (product) => ({
   priceEur: Number(product.price_eur ?? product.priceEur ?? 0),
   priceUsd: Number(product.price_usd ?? product.priceUsd ?? 0),
   stock: Number(product.stock || 0),
+  salesQuantity: Number(product.sales_quantity ?? product.salesQuantity ?? 0),
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
   imageUrl: product.image_url ?? product.imageUrl ?? "",
