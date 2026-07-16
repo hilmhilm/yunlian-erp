@@ -233,7 +233,7 @@ function SettlementPage({sale,loading,error,onCancel,onSubmit}) {
     const value=Number(amount);
     if(!Number.isFinite(value)||value<=0||value>balance+0.0001)return setFormError(t("invalidPaymentAmount"));
     setSaving(true);setFormError("");setToast("");
-    try{await onSubmit({amount:value,method,bookedOn,note:note.trim()});setNote("");setToast(t("paymentSaved"));if(printAfter)setTimeout(()=>window.print(),50)}catch(requestError){setFormError(`${t("paymentSaveFailed")}：${requestError.message}`)}finally{setSaving(false)}
+    try{await onSubmit({amount:value,method,bookedOn,note:note.trim()});setNote("");setToast(t("paymentSaved"));if(printAfter)setTimeout(()=>window.print(),50);else onCancel()}catch(requestError){setFormError(`${t("paymentSaveFailed")}：${requestError.message}`)}finally{setSaving(false)}
   };
   if(loading)return <Page><div className="settlement-page panel"><div className="empty">{t("loading")}</div></div></Page>;
   if(error||!sale)return <Page><div className="settlement-page panel"><div className="form-error detail-error">{error||t("dataLoadFailed")}</div><div className="settlement-footer"><button className="outline" onClick={onCancel}>{t("backToSales")}</button></div></div></Page>;
