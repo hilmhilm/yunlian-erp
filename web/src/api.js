@@ -146,9 +146,14 @@ const normalizeUser = (user) => ({
   lastLoginAt: user.last_login_at ?? user.lastLoginAt ?? null,
 });
 
-export async function fetchProducts(token, search = "") {
-  const products = await request(`/products?search=${encodeURIComponent(search)}`, { token });
+export async function fetchProducts(token, search = "", category = "") {
+  const query = new URLSearchParams({ search, category });
+  const products = await request(`/products?${query}`, { token });
   return products.map(normalizeProduct);
+}
+
+export async function fetchProductCategories(token) {
+  return request("/products/categories", { token });
 }
 
 export async function createProduct(token, product) {

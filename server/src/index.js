@@ -150,8 +150,13 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
 
 app.get("/api/products", asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
-  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1 order by p.id desc limit 500", [q]);
+  const category = String(req.query.category || "").trim();
+  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2='' or btrim(p.category)=$2) order by p.id desc limit 500", [q,category]);
   res.json(result.rows);
+}));
+app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
+  const result=await pool.query("select distinct btrim(category) category from products where nullif(btrim(category),'') is not null order by category");
+  res.json(result.rows.map(row=>row.category));
 }));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{
   const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.id=$1",[req.params.id]);

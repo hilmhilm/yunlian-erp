@@ -135,3 +135,4 @@
 - 标准 Compose 使用 `product_images` 数据卷；DS1517+ 使用 `data/product-images` 持久化目录，迁移或备份时必须与 PostgreSQL 数据一起保留。
 - Nginx 与 Vite 均代理 `/uploads`，产品图片可在开发和生产环境正常显示。
 - 产品增加可选的“产品名2”（迁移 `011_product_name2.sql`）。产品列表右上角提供列选择器，选择保存在浏览器本地，默认视图保持精简。列顺序固定为图片、货号、条码、产品名称、产品名2、分类、箱装数、HUF/EUR/USD 售价、累计入库、累计净销售、供货商、采购成本、当前库存、创建时间、单位，勾选顺序不会改变表格顺序；各列按内容类型限制宽度，长内容在本列内自动换行，不挤压其他属性；迁移 `012_product_purchase_statistics.sql` 增加入库统计查询索引。
+- 产品页原无功能的“请选择”已替换为真实分类筛选；`GET /api/products/categories` 返回数据库中的非空分类，`GET /api/products` 支持将 `category` 与 `search` 组合查询。
