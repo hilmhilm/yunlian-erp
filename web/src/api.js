@@ -76,6 +76,16 @@ const normalizeProduct = (product) => ({
   })),
 });
 
+const normalizeCategory = (category) => ({
+  ...category,
+  parentId: category.parent_id ?? category.parentId ?? null,
+  name2: category.name2 || "",
+  imageUrl: category.image_url ?? category.imageUrl ?? "",
+  productCount: Number(category.product_count ?? category.productCount ?? 0),
+  createdAt: category.created_at ?? category.createdAt ?? null,
+  updatedAt: category.updated_at ?? category.updatedAt ?? null,
+});
+
 const formatDate = (value) => value ? new Date(value).toLocaleString([], {
   year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
 }) : "";
@@ -154,6 +164,31 @@ export async function fetchProducts(token, search = "", category = "") {
 
 export async function fetchProductCategories(token) {
   return request("/products/categories", { token });
+}
+
+export async function fetchCategories(token) {
+  return (await request("/categories", { token })).map(normalizeCategory);
+}
+
+export async function createCategory(token, category) {
+  return normalizeCategory(await request("/categories", {
+    token, method: "POST", body: JSON.stringify(category),
+  }));
+}
+
+export async function updateCategory(token, id, category) {
+  return normalizeCategory(await request(`/categories/${id}`, {
+    token, method: "PATCH", body: JSON.stringify(category),
+  }));
+}
+
+export async function uploadCategoryImage(token, id, file) {
+  return normalizeCategory(await request(`/categories/${id}/image`, {
+    token,
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  }));
 }
 
 export async function createProduct(token, product) {

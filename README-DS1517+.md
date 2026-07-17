@@ -76,3 +76,5 @@ sudo docker-compose -f docker-compose.ds1517.yml down
 ```
 
 `down` 不会删除 `data/postgres`。不要使用 `down -v`，也不要手工清空数据库目录。
+
+分类图片与产品图片共用 `data/product-images` 持久化目录。迁移 `013_product_categories.sql` 会在 API 重建启动时自动建立两级分类表，并把现有产品分类导入为主分类，无需手工执行 SQL。

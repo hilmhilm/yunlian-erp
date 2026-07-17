@@ -8,14 +8,14 @@ import {
 import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest,
-  createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
-  createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProductCategories, fetchProducts, fetchSale,
+  createCategory as createCategoryRequest, createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
+  createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCategories, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchProduct, fetchProducts, fetchSale,
   fetchPurchases, fetchReportSummary, fetchSales, fetchUsers, getStoredSession,
-  login as loginRequest, storeSession, updateProduct as updateProductRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
+  login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateProduct as updateProductRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
 const pageNames = { dashboard: "dashboard", operatingControl: "operatingControl", smartPurchase: "smartPurchase", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
-const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", categories: "products", customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
+const pageTargets = { operatingControl: "dashboard", smartPurchase: "purchases", customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
@@ -44,7 +44,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.17-1";
+const uiVersion = "2026.07.17-2";
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
 function Login({ onLogin }) {
@@ -147,6 +147,34 @@ const productColumnStorageKey="erp-product-list-columns";
 function ProductColumnSelector({options,selected,onToggle,onReset}) {
   const {t}=useI18n();
   return <details className="column-selector"><summary className="outline"><Columns3 size={16}/>{t("selectColumns")}</summary><div className="column-selector-menu"><div className="column-selector-title">{t("visibleColumns")}</div>{options.map(option=><label key={option.key}><input type="checkbox" checked={selected.includes(option.key)} onChange={()=>onToggle(option.key)}/><span>{option.label}</span></label>)}<button type="button" className="outline" onClick={onReset}>{t("resetColumns")}</button></div></details>;
+}
+
+function CategoryImageButton({category,onUpload,canManage}) {
+  const {t}=useI18n();
+  const inputRef=useRef(null),[uploading,setUploading]=useState(false);
+  const choose=async event=>{const file=event.target.files?.[0];event.target.value="";if(!file)return;if(!["image/jpeg","image/png","image/webp"].includes(file.type)||file.size>5*1024*1024)return onUpload(category,null,t("invalidProductImage"));setUploading(true);try{await onUpload(category,file)}finally{setUploading(false)}};
+  const content=category.imageUrl?<img src={category.imageUrl} alt="" loading="lazy"/>:<Tags size={28}/>;
+  if(!canManage)return <span className="category-image">{content}</span>;
+  const label=t(category.imageUrl?"replaceCategoryImage":"uploadCategoryImage");
+  return <span className="category-image-picker"><button type="button" className="category-image" onClick={()=>inputRef.current?.click()} disabled={uploading} title={label} aria-label={`${label}：${category.name}`}>{content}{uploading&&<span className="product-image-loading"/>}</button><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={choose}/></span>;
+}
+
+function CategoryModal({category,parent,onClose,onSave}) {
+  const {t}=useI18n();
+  const [form,setForm]=useState({name:category?.name||"",name2:category?.name2||""}),[saving,setSaving]=useState(false),[error,setError]=useState("");
+  const save=async()=>{const name=form.name.trim();if(!name)return setError(t("invalidCategoryName"));setSaving(true);setError("");try{await onSave({name,name2:form.name2.trim(),parentId:category?.parentId??parent?.id??null})}catch(saveError){setError(`${t("categorySaveFailed")}：${saveError.message}`)}finally{setSaving(false)}};
+  return <Modal title={t(category?"editCategory":parent?"newSubcategory":"newMainCategory")} onClose={onClose}><div className="form-grid category-form">{(parent||category?.parentId)&&<label>{t("parentCategory")}<input value={parent?.name||""} disabled/></label>}<label>{t("categoryName")}<input autoFocus maxLength="120" value={form.name} onChange={event=>setForm({...form,name:event.target.value})}/></label><label>{t("categoryName2")}<input maxLength="120" value={form.name2} onChange={event=>setForm({...form,name2:event.target.value})}/></label></div>{error&&<div className="form-error detail-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>;
+}
+
+function CategoriesPage({categories,onCreate,onUpdate,onUploadImage,canManage,loading=false,error:loadError=""}) {
+  const {t}=useI18n();
+  const [modalOpen,setModalOpen]=useState(false),[editor,setEditor]=useState(null),[parent,setParent]=useState(null),[error,setError]=useState("");
+  const roots=categories.filter(category=>!category.parentId),childrenOf=id=>categories.filter(category=>Number(category.parentId)===Number(id));
+  const closeModal=()=>{setModalOpen(false);setEditor(null);setParent(null)};
+  const save=async data=>{if(editor)await onUpdate(editor.id,data);else await onCreate(data);closeModal()};
+  const upload=async(category,file,validationError="")=>{setError(validationError);if(validationError||!file)return;try{await onUploadImage(category.id,file);setError("")}catch(uploadError){setError(`${t("categoryImageUploadFailed")}：${uploadError.message}`)}};
+  const card=(category,isChild=false)=><div className={`category-card ${isChild?"subcategory-card":"main-category-card"}`} key={category.id}><CategoryImageButton category={category} onUpload={upload} canManage={canManage}/><div className="category-card-copy"><small>{t(isChild?"subcategory":"mainCategory")}</small><b>{category.name}</b><span>{category.name2||t("noSecondaryName")}</span></div><div className="category-count"><b>{category.productCount}</b><span>{t("productsInCategory")}</span></div>{canManage&&<div className="category-actions">{!isChild&&<button className="outline" onClick={()=>{setParent(category);setEditor(null);setModalOpen(true)}}><Plus size={15}/>{t("addSubcategory")}</button>}<button className="outline" onClick={()=>{setEditor(category);setParent(category.parentId?roots.find(root=>Number(root.id)===Number(category.parentId)):null);setModalOpen(true)}}><Pencil size={15}/>{t("edit")}</button></div>}</div>;
+  return <Page><section className="category-page"><div className="panel-heading category-heading"><div><h2>{t("categoryManagement")}</h2><span>{roots.length} {t("mainCategories")} · {categories.length-roots.length} {t("subcategories")}</span></div>{canManage&&<button className="primary" onClick={()=>{setEditor(null);setParent(null);setModalOpen(true)}} disabled={loading}><Plus size={16}/>{t("newMainCategory")}</button>}</div>{(error||loadError)&&<div className="form-error page-error">{error||loadError}</div>}{loading&&!categories.length&&<div className="empty">{t("loading")}</div>}<div className="category-tree">{roots.map(root=><section className="category-group" key={root.id}>{card(root)}<div className="subcategory-list">{childrenOf(root.id).map(child=>card(child,true))}</div></section>)}</div>{!loading&&!roots.length&&<div className="empty">{t("noCategories")}</div>}</section>{modalOpen&&<CategoryModal category={editor} parent={parent} onClose={closeModal} onSave={save}/>}</Page>;
 }
 
 function Products({ products, categories=[], onCreate, onUpdate, onUploadImage, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true, canUpload=false }) {
@@ -403,7 +431,7 @@ function Modal({title,onClose,children,wide=false}) {return <div className="moda
 export function App() {
   const [session,setSession]=useState(getStoredSession);
   const [page,setPage]=useState("dashboard"),[openTabs,setOpenTabs]=useState(["dashboard"]),[menuOpen,setMenuOpen]=useState(false);
-  const [products,setProducts]=useState([]),[productCategories,setProductCategories]=useState([]),[customers,setCustomers]=useState([]),[purchases,setPurchases]=useState([]),[sales,setSales]=useState([]),[users,setUsers]=useState([]);
+  const [products,setProducts]=useState([]),[productCategories,setProductCategories]=useState([]),[categoryRecords,setCategoryRecords]=useState([]),[customers,setCustomers]=useState([]),[purchases,setPurchases]=useState([]),[sales,setSales]=useState([]),[users,setUsers]=useState([]);
   const [editingSale,setEditingSale]=useState(null),[settlementSale,setSettlementSale]=useState(null),[settlementLoading,setSettlementLoading]=useState(false),[settlementError,setSettlementError]=useState(""),[deliverySale,setDeliverySale]=useState(null),[deliveryLoading,setDeliveryLoading]=useState(false),[deliveryError,setDeliveryError]=useState("");
   const [salesFilters,setSalesFilters]=useState(defaultSalesFilters);
   const [dashboardSummary,setDashboardSummary]=useState(null),[reportSummary,setReportSummary]=useState(null);
@@ -411,9 +439,9 @@ export function App() {
   useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
   const openPage=nextPage=>{setOpenTabs(current=>current.includes(nextPage)?current:[...current,nextPage]);setPage(nextPage)};
   const closePage=(tab,event)=>{event?.stopPropagation();if(tab==="dashboard")return;setOpenTabs(current=>{const index=current.indexOf(tab),next=current.filter(item=>item!==tab);if(page===tab)setPage(next[Math.max(0,index-1)]||"dashboard");return next});if(tab==="scanSales")setEditingSale(null);if(tab==="saleSettlement"){setSettlementSale(null);setSettlementError("")}if(tab==="deliveryNote"){setDeliverySale(null);setDeliveryError("")}};
-  const logout=()=>{clearStoredSession();setSession(null);setPage("dashboard");setOpenTabs(["dashboard"]);setProducts([]);setProductCategories([]);setCustomers([]);setPurchases([]);setSales([]);setUsers([]);setEditingSale(null);setSettlementSale(null);setDeliverySale(null);setSalesFilters(defaultSalesFilters())};
+  const logout=()=>{clearStoredSession();setSession(null);setPage("dashboard");setOpenTabs(["dashboard"]);setProducts([]);setProductCategories([]);setCategoryRecords([]);setCustomers([]);setPurchases([]);setSales([]);setUsers([]);setEditingSale(null);setSettlementSale(null);setDeliverySale(null);setSalesFilters(defaultSalesFilters())};
   const handleError=(error)=>{if(error instanceof ApiError&&error.status===401){logout();return}setDataError(error.message)};
-  const loadAll=async(token=session?.token)=>{if(!token)return;setDataLoading(true);setDataError("");try{const nextIdentity=await fetchCurrentUser(token),role=nextIdentity.role;const [nextProducts,nextProductCategories,nextCustomers,nextPurchases,nextSales,nextDashboard,nextReport,nextUsers]=await Promise.all([fetchProducts(token),fetchProductCategories(token),["admin","sales","finance"].includes(role)?fetchCustomers(token):Promise.resolve([]),["admin","purchasing","warehouse","finance"].includes(role)?fetchPurchases(token):Promise.resolve([]),["admin","sales","finance"].includes(role)?fetchSales(token,salesFilters):Promise.resolve([]),fetchDashboard(token),["admin","finance"].includes(role)?fetchReportSummary(token):Promise.resolve(null),role==="admin"?fetchUsers(token):Promise.resolve([])]);setProducts(nextProducts);setProductCategories(nextProductCategories);setCustomers(nextCustomers);setPurchases(nextPurchases);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);setUsers(nextUsers);const refreshedSession={...session,user:nextIdentity};storeSession(refreshedSession);setSession(refreshedSession)}catch(error){handleError(error)}finally{setDataLoading(false)}};
+  const loadAll=async(token=session?.token)=>{if(!token)return;setDataLoading(true);setDataError("");try{const nextIdentity=await fetchCurrentUser(token),role=nextIdentity.role;const [nextProducts,nextCategoryRecords,nextCustomers,nextPurchases,nextSales,nextDashboard,nextReport,nextUsers]=await Promise.all([fetchProducts(token),fetchCategories(token),["admin","sales","finance"].includes(role)?fetchCustomers(token):Promise.resolve([]),["admin","purchasing","warehouse","finance"].includes(role)?fetchPurchases(token):Promise.resolve([]),["admin","sales","finance"].includes(role)?fetchSales(token,salesFilters):Promise.resolve([]),fetchDashboard(token),["admin","finance"].includes(role)?fetchReportSummary(token):Promise.resolve(null),role==="admin"?fetchUsers(token):Promise.resolve([])]);setProducts(nextProducts);setCategoryRecords(nextCategoryRecords);setProductCategories(nextCategoryRecords.map(category=>category.name));setCustomers(nextCustomers);setPurchases(nextPurchases);setSales(nextSales);setDashboardSummary(nextDashboard);setReportSummary(nextReport);setUsers(nextUsers);const refreshedSession={...session,user:nextIdentity};storeSession(refreshedSession);setSession(refreshedSession)}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const loadProducts=async(search="",category="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setProducts(await fetchProducts(session.token,search,category))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const loadCustomers=async(search="")=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setCustomers(await fetchCustomers(session.token,search))}catch(error){handleError(error)}finally{setDataLoading(false)}};
   const refreshPurchases=async()=>{if(!session?.token)return;setDataLoading(true);setDataError("");try{setPurchases(await fetchPurchases(session.token))}catch(error){handleError(error)}finally{setDataLoading(false)}};
@@ -421,8 +449,12 @@ export function App() {
   const refreshReport=()=>["admin","finance"].includes(session?.user?.role)?fetchReportSummary(session.token):Promise.resolve(reportSummary);
   useEffect(()=>{if(session?.token)loadAll(session.token)},[session?.token]);
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
-  const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [nextProductCategories,nextDashboard,nextReport]=await Promise.all([fetchProductCategories(session.token),fetchDashboard(session.token),refreshReport()]);setProductCategories(nextProductCategories);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
-  const changeProduct=async(id,product)=>{const updated=await updateProductRequest(session.token,id,product);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));setProductCategories(await fetchProductCategories(session.token));return updated};
+  const syncCategories=async()=>{const next=await fetchCategories(session.token);setCategoryRecords(next);setProductCategories(next.map(category=>category.name));return next};
+  const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [,nextDashboard,nextReport]=await Promise.all([syncCategories(),fetchDashboard(session.token),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const changeProduct=async(id,product)=>{const updated=await updateProductRequest(session.token,id,product);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));await syncCategories();return updated};
+  const addCategory=async category=>{await createCategoryRequest(session.token,category);await syncCategories()};
+  const changeCategory=async(id,category)=>{await updateCategoryRequest(session.token,id,category);const next=await syncCategories();setProducts(await fetchProducts(session.token));return next.find(item=>Number(item.id)===Number(id))};
+  const uploadCategoryImage=async(id,file)=>{const updated=await uploadCategoryImageRequest(session.token,id,file);setCategoryRecords(current=>current.map(category=>Number(category.id)===Number(id)?updated:category));return updated};
   const uploadProductImage=async(id,file)=>{const updated=await uploadProductImageRequest(session.token,id,file);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));return updated};
   const loadProductDetail=async id=>fetchProduct(session.token,id);
   const addCustomer=async(customer)=>{const created=await createCustomerRequest(session.token,customer);setCustomers(current=>[created,...current]);setDashboardSummary(await fetchDashboard(session.token))};
@@ -441,6 +473,7 @@ export function App() {
   const contentByTarget={
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={openPage}/>,
     products:<Products products={products} categories={productCategories} onCreate={addProduct} onUpdate={changeProduct} onUploadImage={uploadProductImage} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)} canUpload={["admin","purchasing","warehouse","sales"].includes(session.user.role)}/>,
+    categories:<CategoriesPage categories={categoryRecords} onCreate={addCategory} onUpdate={changeCategory} onUploadImage={uploadCategoryImage} canManage={["admin","purchasing","warehouse"].includes(session.user.role)} loading={dataLoading} error={dataError}/>,
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
     customers:<Customers customers={customers} onCreate={addCustomer} onLoad={loadCustomers} loading={dataLoading} error={dataError} canCreate={["admin","sales"].includes(session.user.role)}/>,

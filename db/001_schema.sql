@@ -4,6 +4,9 @@ create table if not exists products (
   cost numeric(14,2) not null default 0, price numeric(14,2) not null default 0, stock integer not null default 0, image_url text not null default '',
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
+create table if not exists product_categories (id bigserial primary key, parent_id bigint references product_categories(id) on delete restrict, name text not null, name2 text not null default '', image_url text not null default '', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), check(parent_id is null or parent_id<>id));
+create unique index if not exists product_categories_name_uidx on product_categories(lower(name));
+create index if not exists product_categories_parent_id_idx on product_categories(parent_id);
 create index if not exists products_search_idx on products using gin (to_tsvector('simple',sku||' '||barcode||' '||name));
 create table if not exists supported_locales (
   locale text primary key, display_name text not null, enabled boolean not null default true, is_default boolean not null default false

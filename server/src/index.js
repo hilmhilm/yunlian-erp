@@ -148,6 +148,49 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
   res.json({ products: products.rows[0], customers: customers.rows[0], sales: saleTotals, purchases: purchases.rows[0] });
 }));
 
+app.get("/api/categories", asyncRoute(async (_req,res)=>{
+  const result=await pool.query("select c.*,coalesce((select count(*) from products p where lower(btrim(p.category))=lower(c.name)),0)::int product_count from product_categories c order by coalesce(c.parent_id,c.id),c.parent_id nulls first,lower(c.name)");
+  res.json(result.rows);
+}));
+app.post("/api/categories", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const name=String(req.body?.name||"").trim(),name2=String(req.body?.name2||"").trim(),parentId=req.body?.parentId===null||req.body?.parentId===""||req.body?.parentId===undefined?null:Number(req.body.parentId);
+  if(!name||(parentId!==null&&!Number.isSafeInteger(parentId)))return res.status(400).json({error:"invalid category data"});
+  if(parentId!==null){const parent=await pool.query("select id from product_categories where id=$1 and parent_id is null",[parentId]);if(!parent.rowCount)return res.status(400).json({error:"parent category must be a main category"})}
+  const result=await pool.query("insert into product_categories(parent_id,name,name2) values($1,$2,$3) returning *,0::int product_count",[parentId,name,name2]);
+  res.status(201).json(result.rows[0]);
+}));
+app.patch("/api/categories/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const current=await client.query("select * from product_categories where id=$1 for update",[req.params.id]);
+    if(!current.rowCount){await client.query("rollback");return res.status(404).json({error:"category not found"})}
+    const row=current.rows[0],name=req.body?.name===undefined?row.name:String(req.body.name).trim(),name2=req.body?.name2===undefined?row.name2:String(req.body.name2).trim(),parentId=req.body?.parentId===undefined?row.parent_id:req.body.parentId===null||req.body.parentId===""?null:Number(req.body.parentId);
+    if(!name||(parentId!==null&&(!Number.isSafeInteger(parentId)||String(parentId)===String(req.params.id)))){await client.query("rollback");return res.status(400).json({error:"invalid category data"})}
+    if(parentId!==null){const parent=await client.query("select id from product_categories where id=$1 and parent_id is null",[parentId]);const children=await client.query("select 1 from product_categories where parent_id=$1 limit 1",[req.params.id]);if(!parent.rowCount||children.rowCount){await client.query("rollback");return res.status(400).json({error:"category hierarchy is limited to two levels"})}}
+    const result=await client.query("update product_categories set parent_id=$1,name=$2,name2=$3,updated_at=now() where id=$4 returning *",[parentId,name,name2,req.params.id]);
+    if(name!==row.name)await client.query("update products set category=$1,updated_at=now() where lower(btrim(category))=lower($2)",[name,row.name]);
+    await client.query("commit");
+    const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[name]);
+    res.json({...result.rows[0],product_count:count.rows[0].product_count});
+  }catch(error){await client.query("rollback");throw error}finally{client.release()}
+}));
+app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
+  const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase(),extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
+  if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"invalid category image"});
+  const category=await pool.query("select id,image_url from product_categories where id=$1",[req.params.id]);
+  if(!category.rowCount)return res.status(404).json({error:"category not found"});
+  const fileName=`category-${req.params.id}-${crypto.randomUUID()}.${extensions[mimeType]}`,filePath=path.join(uploadDirectory,fileName);
+  await writeFile(filePath,req.body,{flag:"wx"});
+  let updated;
+  try{updated=await pool.query("update product_categories set image_url=$1,updated_at=now() where id=$2 returning *",[`/uploads/${fileName}`,req.params.id])}
+  catch(error){await unlink(filePath).catch(()=>{});throw error}
+  const previous=category.rows[0].image_url;
+  if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
+  const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[updated.rows[0].name]);
+  res.json({...updated.rows[0],product_count:count.rows[0].product_count});
+}));
+
 app.get("/api/products", asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
   const category = String(req.query.category || "").trim();
@@ -155,8 +198,8 @@ app.get("/api/products", asyncRoute(async (req, res) => {
   res.json(result.rows);
 }));
 app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select distinct btrim(category) category from products where nullif(btrim(category),'') is not null order by category");
-  res.json(result.rows.map(row=>row.category));
+  const result=await pool.query("select name from product_categories order by lower(name)");
+  res.json(result.rows.map(row=>row.name));
 }));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{
   const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.id=$1",[req.params.id]);
@@ -168,6 +211,8 @@ app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRo
   const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),name2=String(b.name2||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),priceHuf=Number(b.priceHuf??b.price??0),priceEur=Number(b.priceEur??0),priceUsd=Number(b.priceUsd??0);
   if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||[cost,priceHuf,priceEur,priceUsd].some(value=>!Number.isFinite(value)||value<0))return res.status(400).json({error:"invalid product data"});
   const result = await pool.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0) returning *", [sku,String(b.barcode||"").trim(),name,name2,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,priceHuf,priceEur,priceUsd]);
+  const category=String(b.category||"").trim();
+  if(category)await pool.query("insert into product_categories(name) values($1) on conflict do nothing",[category]);
   res.status(201).json(result.rows[0]);
 }));
 app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
@@ -176,6 +221,8 @@ app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), as
   if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||[cost,priceHuf,priceEur,priceUsd].some(value=>value!==null&&(!Number.isFinite(value)||value<0)))return res.status(400).json({error:"invalid product data"});
   const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),cost=coalesce($9,cost),price=coalesce($10,price),price_eur=coalesce($11,price_eur),price_usd=coalesce($12,price_usd),updated_at=now() where id=$13 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
+  const category=String(b.category||"").trim();
+  if(category)await pool.query("insert into product_categories(name) values($1) on conflict do nothing",[category]);
   const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
