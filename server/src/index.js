@@ -30,6 +30,7 @@ app.use("/uploads", express.static(uploadDirectory, { maxAge: "7d", immutable: t
 
 const scrypt = promisify(crypto.scrypt);
 const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
+const currencies = new Set(["HUF","EUR","USD"]);
 const loginAttempts = new Map();
 const loginWindowMs = 15 * 60 * 1000;
 const maxLoginAttempts = 5;
@@ -72,6 +73,7 @@ const auth = async (req, res, next) => {
 };
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const requireRole = (...allowed) => (req, res, next) => allowed.includes(req.user.role) ? next() : res.status(403).json({ error: "forbidden" });
+const getSystemSettings = async (client=pool) => (await client.query("select * from system_settings where id=true")).rows[0];
 
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USERNAME || "admin";
@@ -112,6 +114,16 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 app.use("/api", asyncRoute(auth));
 
 app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role } }));
+
+app.get("/api/settings", asyncRoute(async (_req,res)=>res.json(await getSystemSettings())));
+app.patch("/api/settings", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const current=await getSystemSettings(),body=req.body||{},text=(key,max)=>String(body[key]??current[key]).trim().slice(0,max);
+  const companyName=text("company_name",200),taxNumber=text("tax_number",100),registrationNumber=text("registration_number",100),companyAddress=text("company_address",500),companyPhone=text("company_phone",100),companyEmail=text("company_email",200),companyWebsite=text("company_website",300),defaultWarehouse=text("default_warehouse",120),salesOrderPrefix=text("sales_order_prefix",12),purchaseOrderPrefix=text("purchase_order_prefix",12);
+  const eurHufRate=Number(body.eur_huf_rate??current.eur_huf_rate),usdHufRate=Number(body.usd_huf_rate??current.usd_huf_rate),defaultCurrency=String(body.default_currency??current.default_currency).toUpperCase(),allowOverselling=body.allow_overselling??current.allow_overselling,lowStockThreshold=Number(body.low_stock_threshold??current.low_stock_threshold);
+  if(!companyName||!defaultWarehouse||!currencies.has(defaultCurrency)||typeof allowOverselling!=="boolean"||!Number.isFinite(eurHufRate)||eurHufRate<=0||!Number.isFinite(usdHufRate)||usdHufRate<=0||!Number.isSafeInteger(lowStockThreshold)||lowStockThreshold<0||lowStockThreshold>1000000||!/^[A-Za-z0-9-]{1,12}$/.test(salesOrderPrefix)||!/^[A-Za-z0-9-]{1,12}$/.test(purchaseOrderPrefix))return res.status(400).json({error:"invalid system settings"});
+  const result=await pool.query("update system_settings set company_name=$1,tax_number=$2,registration_number=$3,company_address=$4,company_phone=$5,company_email=$6,company_website=$7,eur_huf_rate=$8,usd_huf_rate=$9,default_currency=$10,allow_overselling=$11,low_stock_threshold=$12,default_warehouse=$13,sales_order_prefix=$14,purchase_order_prefix=$15,updated_at=now() where id=true returning *",[companyName,taxNumber,registrationNumber,companyAddress,companyPhone,companyEmail,companyWebsite,eurHufRate,usdHufRate,defaultCurrency,allowOverselling,lowStockThreshold,defaultWarehouse,salesOrderPrefix,purchaseOrderPrefix]);
+  res.json(result.rows[0]);
+}));
 
 app.get("/api/users", requireRole("admin"), asyncRoute(async (_req,res)=>{
   const result=await pool.query("select id,username,display_name,role,enabled,last_login_at,created_at from app_users order by id");
@@ -285,7 +297,8 @@ app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"
 app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const supplier=String(body.supplier||"").trim();
-  const warehouse=String(body.warehouse||"主仓库").trim();
+  const settings=await getSystemSettings();
+  const warehouse=String(body.warehouse||settings.default_warehouse).trim();
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),cost:Number(item.cost)})):[];
   if(!supplier) return res.status(400).json({error:"supplier is required"});
   if(!warehouse) return res.status(400).json({error:"warehouse is required"});
@@ -298,7 +311,7 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
     const productIds=items.map(item=>item.productId);
     const products=await client.query("select id from products where id=any($1::bigint[]) for update",[productIds]);
     if(products.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
-    const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[body.orderNo||`Vin${Date.now()}`,supplier,warehouse,total,"已入库"]);
+    const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[body.orderNo||`${settings.purchase_order_prefix}${Date.now()}`,supplier,warehouse,total,"已入库"]);
     for(const item of items){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,warehouse,item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
@@ -354,10 +367,10 @@ app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyn
 }));
 app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
+  const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
-  const currency=String(body.currency||"HUF").toUpperCase();
-  const currencies=new Set(["HUF","EUR","USD"]);
+  const currency=String(body.currency||settings.default_currency).toUpperCase();
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
@@ -365,24 +378,25 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
-    const productRows=await client.query("select id,price,price_eur,price_usd from products where id=any($1::bigint[]) for update",[items.map(item=>item.productId)]);
+    const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) for update",[items.map(item=>item.productId)]);
     if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
     const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
     const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
+    if(!settings.allow_overselling){const unavailable=pricedItems.find(item=>Number(productById.get(item.productId).stock)-item.quantity<0);if(unavailable){const error=new Error(`insufficient stock for product ${unavailable.productId}; overselling is disabled`);error.status=409;throw error}}
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[body.orderNo||`Vs${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
-    for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale',$3,$4)",[item.productId,-item.quantity,order.rows[0].order_no,req.user.username]);}
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[body.orderNo||`${settings.sales_order_prefix}${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
+    for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale',$4,$5)",[item.productId,settings.default_warehouse,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
 app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
+  const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
-  const currency=String(body.currency||"HUF").toUpperCase();
-  const currencies=new Set(["HUF","EUR","USD"]);
+  const currency=String(body.currency||settings.default_currency).toUpperCase();
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
@@ -390,6 +404,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
+    const settings=await getSystemSettings(client);
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const payments=await client.query("select 1 from sale_payments where sale_id=$1 limit 1",[req.params.id]);
@@ -399,7 +414,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
     const oldItems=await client.query("select product_id,quantity from sale_items where sale_id=$1 order by product_id for update",[req.params.id]);
     const productIds=[...new Set([...oldItems.rows.map(item=>Number(item.product_id)),...items.map(item=>item.productId)])].sort((a,b)=>a-b);
     const productRows=[];
-    for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
+    for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
     const productById=new Map(productRows.map(product=>[Number(product.id),product]));
     const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
     const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
@@ -408,7 +423,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
       const stockChanges=new Map();
       oldItems.rows.forEach(item=>stockChanges.set(Number(item.product_id),(stockChanges.get(Number(item.product_id))||0)+Number(item.quantity)));
       pricedItems.forEach(item=>stockChanges.set(item.productId,(stockChanges.get(item.productId)||0)-item.quantity));
-      for(const [productId,quantity] of [...stockChanges].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[quantity,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_edit',$3,$4)",[productId,quantity,sale.rows[0].order_no,req.user.username])}
+      for(const [productId,quantity] of [...stockChanges].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;const product=productById.get(productId);if(!settings.allow_overselling&&Number(product.stock)+quantity<0){const error=new Error(`insufficient stock for product ${productId}; overselling is disabled`);error.status=409;throw error}await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[quantity,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale_edit',$4,$5)",[productId,settings.default_warehouse,quantity,sale.rows[0].order_no,req.user.username])}
     }
     await client.query("delete from sale_items where sale_id=$1",[req.params.id]);
     for(const item of pricedItems)await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[req.params.id,item.productId,item.quantity,item.price]);
@@ -425,6 +440,7 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
   if(new Set(requested.map(item=>item.saleItemId)).size!==requested.length) return res.status(400).json({error:"duplicate return items are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
+    const settings=await getSystemSettings(client);
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const saleItems=await client.query("select id,product_id,quantity,price from sale_items where sale_id=$1 for update",[req.params.id]);
@@ -435,7 +451,7 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
     const total=items.reduce((sum,item)=>sum+item.quantity*item.price,0);
     const returnNo=body.returnNo||`Vr${Date.now()}`;
     const created=await client.query("insert into sale_returns(return_no,sale_id,total,reason,created_by) values($1,$2,$3,$4,$5) returning *",[returnNo,req.params.id,total,String(body.reason||"").trim(),req.user.username]);
-    for(const item of items){await client.query("insert into sale_return_items(return_id,sale_item_id,product_id,quantity,price) values($1,$2,$3,$4,$5)",[created.rows[0].id,item.saleItemId,item.productId,item.quantity,item.price]);if(sale.rows[0].stock_deducted){await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,'sale_return',$3,$4)",[item.productId,item.quantity,returnNo,req.user.username]);}}
+    for(const item of items){await client.query("insert into sale_return_items(return_id,sale_item_id,product_id,quantity,price) values($1,$2,$3,$4,$5)",[created.rows[0].id,item.saleItemId,item.productId,item.quantity,item.price]);if(sale.rows[0].stock_deducted){await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale_return',$4,$5)",[item.productId,settings.default_warehouse,item.quantity,returnNo,req.user.username]);}}
     const totals=await client.query("select (select coalesce(sum(quantity),0) from sale_items where sale_id=$1)::int sold,(select coalesce(sum(sri.quantity),0) from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1)::int returned",[req.params.id]);
     await client.query("update sales set status=$1 where id=$2",[totals.rows[0].returned>=totals.rows[0].sold?"已退货":"部分退货",req.params.id]);
     await client.query("commit");res.status(201).json(created.rows[0]);
@@ -448,6 +464,7 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
   if(!changes.length)return res.status(400).json({error:"no valid status supplied"});
   const client=await pool.connect();
   try{await client.query("begin");
+    const settings=await getSystemSettings(client);
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const stockChange=changes.find(([key])=>key==="stockDeducted");
@@ -456,7 +473,7 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
       const remainingByProduct=new Map();
       for(const line of lines.rows){const remaining=Number(line.quantity)-Number(line.returned_quantity);remainingByProduct.set(Number(line.product_id),(remainingByProduct.get(Number(line.product_id))||0)+remaining)}
       const deduct=req.body[stockChange[0]];
-      for(const [productId,quantity] of [...remainingByProduct].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;const product=await client.query("select stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} not found`);error.status=409;throw error}const delta=deduct?-quantity:quantity;await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,'主仓库',$2,$3,$4,$5)",[productId,delta,deduct?"sale_status_deduct":"sale_status_restore",sale.rows[0].order_no,req.user.username]);}
+      for(const [productId,quantity] of [...remainingByProduct].sort((a,b)=>a[0]-b[0])){if(quantity===0)continue;const product=await client.query("select stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} not found`);error.status=409;throw error}const delta=deduct?-quantity:quantity;if(!settings.allow_overselling&&Number(product.rows[0].stock)+delta<0){const error=new Error(`insufficient stock for product ${productId}; overselling is disabled`);error.status=409;throw error}await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,$4,$5,$6)",[productId,settings.default_warehouse,delta,deduct?"sale_status_deduct":"sale_status_restore",sale.rows[0].order_no,req.user.username]);}
     }
     const values=changes.map(([key])=>req.body[key]);
     const assignments=changes.map(([,column],index)=>`${column}=$${index+1}`);

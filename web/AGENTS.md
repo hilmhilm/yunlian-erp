@@ -10,7 +10,8 @@ When implementing from a selected generated mock, treat that image as the source
 
 - The ERP is multilingual by design. All new user-facing copy must be added through `src/i18n.jsx`; do not hardcode new UI strings in business components.
 - Initial supported locales are Simplified Chinese (`zh-CN`), English (`en`), and Hungarian (`hu`). Missing keys intentionally fall back to Simplified Chinese.
-- Overselling is a system requirement. Inventory may be negative; frontend sales flows must not block orders or stock-deduction actions because available stock is insufficient.
+- Overselling is controlled by the administrator's basic-information setting and defaults to enabled. When enabled inventory may be negative; when disabled the backend must prevent every sales action that would reduce stock below zero.
+- The left navigation must not contain the obsolete “Control” group. Basic information settings are real persisted business configuration covering company details, HUF exchange rates, default sales currency, overselling, low-stock threshold, default warehouse and sales/purchase document prefixes.
 - The supported business currencies are fixed to HUF, EUR, and USD. Every product has an independent sales price in each currency, and sales flows must preserve the selected currency.
 - Sales settlement is ledger-based: every cash or bank-transfer receipt is stored as an immutable payment record. Paid and due amounts and the unpaid/partial/paid status are derived from those records; they must never be manually toggled.
 - Every saved scan-sale can carry a delivery contact phone, vehicle plate, delivery address, delivery date and notes. These fields must persist with the sale and remain available for an A4 delivery note and later reprints from the sales list.

@@ -156,6 +156,24 @@ const normalizeUser = (user) => ({
   lastLoginAt: user.last_login_at ?? user.lastLoginAt ?? null,
 });
 
+const normalizeSettings = (settings = {}) => ({
+  companyName: settings.company_name ?? settings.companyName ?? "云链 ERP",
+  taxNumber: settings.tax_number ?? settings.taxNumber ?? "",
+  registrationNumber: settings.registration_number ?? settings.registrationNumber ?? "",
+  companyAddress: settings.company_address ?? settings.companyAddress ?? "",
+  companyPhone: settings.company_phone ?? settings.companyPhone ?? "",
+  companyEmail: settings.company_email ?? settings.companyEmail ?? "",
+  companyWebsite: settings.company_website ?? settings.companyWebsite ?? "",
+  eurHufRate: Number(settings.eur_huf_rate ?? settings.eurHufRate ?? 357.351),
+  usdHufRate: Number(settings.usd_huf_rate ?? settings.usdHufRate ?? 313.465),
+  defaultCurrency: settings.default_currency ?? settings.defaultCurrency ?? "HUF",
+  allowOverselling: Boolean(settings.allow_overselling ?? settings.allowOverselling ?? true),
+  lowStockThreshold: Number(settings.low_stock_threshold ?? settings.lowStockThreshold ?? 20),
+  defaultWarehouse: settings.default_warehouse ?? settings.defaultWarehouse ?? "主仓库",
+  salesOrderPrefix: settings.sales_order_prefix ?? settings.salesOrderPrefix ?? "Vs",
+  purchaseOrderPrefix: settings.purchase_order_prefix ?? settings.purchaseOrderPrefix ?? "Vin",
+});
+
 export async function fetchProducts(token, search = "", categoryId = "") {
   const query = new URLSearchParams({ search });
   if(categoryId)query.set("categoryId",categoryId);
@@ -329,5 +347,33 @@ export async function createUser(token, user) {
 export async function updateUser(token, id, changes) {
   return normalizeUser(await request(`/users/${id}`, {
     token, method: "PATCH", body: JSON.stringify(changes),
+  }));
+}
+
+export async function fetchSettings(token) {
+  return normalizeSettings(await request("/settings", { token }));
+}
+
+export async function updateSettings(token, settings) {
+  return normalizeSettings(await request("/settings", {
+    token,
+    method: "PATCH",
+    body: JSON.stringify({
+      company_name: settings.companyName,
+      tax_number: settings.taxNumber,
+      registration_number: settings.registrationNumber,
+      company_address: settings.companyAddress,
+      company_phone: settings.companyPhone,
+      company_email: settings.companyEmail,
+      company_website: settings.companyWebsite,
+      eur_huf_rate: settings.eurHufRate,
+      usd_huf_rate: settings.usdHufRate,
+      default_currency: settings.defaultCurrency,
+      allow_overselling: settings.allowOverselling,
+      low_stock_threshold: settings.lowStockThreshold,
+      default_warehouse: settings.defaultWarehouse,
+      sales_order_prefix: settings.salesOrderPrefix,
+      purchase_order_prefix: settings.purchaseOrderPrefix,
+    }),
   }));
 }
