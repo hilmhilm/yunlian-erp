@@ -282,6 +282,18 @@ export async function fetchSales(token, { startDate = "", endDate = "" } = {}) {
   return (await request(`/sales${suffix}`, { token })).map(normalizeSale);
 }
 
+export async function fetchPickingSales(token, { startDate = "", endDate = "" } = {}) {
+  const query = new URLSearchParams();
+  if (startDate) query.set("startDate", startDate);
+  if (endDate) query.set("endDate", endDate);
+  const suffix = query.size ? `?${query}` : "";
+  return (await request(`/picking-sales${suffix}`, { token })).map(normalizeSale);
+}
+
+export async function fetchPickingSale(token, id) {
+  return normalizeSaleDetail(await request(`/picking-sales/${id}`, { token }));
+}
+
 export async function createSale(token, sale) {
   return normalizeSale(await request("/sales", {
     token, method: "POST", body: JSON.stringify(sale),

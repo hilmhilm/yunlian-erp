@@ -341,6 +341,25 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
   res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
 }));
 
+app.get("/api/picking-sales", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
+  const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),datePattern=/^\d{4}-\d{2}-\d{2}$/;
+  const validDate=value=>datePattern.test(value)&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
+  if((startDate&&!validDate(startDate))||(endDate&&!validDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
+  const params=startDate||endDate?[businessTimezone]:[],filters=[];
+  if(startDate){params.push(startDate);filters.push(`s.created_at >= ($${params.length}::date at time zone $1)`)}
+  if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
+  const where=filters.length?` where ${filters.join(" and ")}`:"",limit=filters.length?"":" limit 500";
+  const result=await pool.query(`select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
+  res.json(result.rows);
+}));
+
+app.get("/api/picking-sales/:id", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
+  const sale=await pool.query("select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
+  const items=await pool.query("select si.id,si.product_id,si.quantity,p.sku,p.barcode,p.name,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
+  res.json({...sale.rows[0],items:items.rows});
+}));
+
 app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
   const body=req.body||{},amountText=String(body.amount??""),amount=Number(body.amount),method=String(body.method||""),bookedOn=String(body.bookedOn||""),note=String(body.note||"").trim().slice(0,1000);
   const datePattern=/^\d{4}-\d{2}-\d{2}$/;
