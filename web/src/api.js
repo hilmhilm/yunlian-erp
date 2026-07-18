@@ -136,6 +136,7 @@ const normalizeSaleDetail = (sale) => ({
   items: (sale.items || []).map(item => ({
     ...item,
     productId: Number(item.product_id),
+    name2: item.name2 || "",
     quantity: Number(item.quantity || 0),
     price: Number(item.price || 0),
     stock: Number(item.stock || 0),
