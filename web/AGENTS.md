@@ -27,3 +27,4 @@ When implementing from a selected generated mock, treat that image as the source
 - Product categories are managed on a dedicated two-level tree page. A category has a primary name, a secondary-language name, an optional parent main category and an optional persistent image; category renames must keep product category assignments in sync.
 - Product and category edit dialogs must allow an existing image to be deleted after confirmation. Deletion clears the stored URL and removes the corresponding file from the persistent uploads volume.
 - Product-list filtering uses linked main-category and subcategory selectors. Selecting only a main category includes that category and all direct children. Product create/edit forms must select an existing category and must not accept arbitrary category text.
+- The Customers navigation group contains only the customer list; the obsolete customer-accounts menu item must not appear.
