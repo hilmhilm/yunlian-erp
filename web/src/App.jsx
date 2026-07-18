@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
-  ScanLine, Search, Settings, ShoppingCart, Store, Tags, Truck, Users,
+  ScanLine, Search, Settings, ShoppingCart, Tags, Truck, Users,
   Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
@@ -14,8 +14,8 @@ import {
   login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateProduct as updateProductRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateSettings as updateSettingsRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", cloudProducts: "cloudProducts", cloudSettings: "cloudSettings", users: "employeeManagement", settings: "settings" };
-const pageTargets = { customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales", cloudProducts: "products", cloudSettings: "settings" };
+const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", customerAccounts: "customerAccounts", sales: "salesList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", users: "employeeManagement", settings: "settings" };
+const pageTargets = { customerAccounts: "customers", scanSales: "pos", flowDetails: "reports", orderFinance: "reports", invoiceList: "sales", issueInvoice: "sales" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
@@ -32,7 +32,6 @@ const menu = [
   { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "flowDetails", labelKey: "flowDetails" }, { id: "orderFinance", labelKey: "orderFinance" }] },
   { labelKey: "invoice", icon: FileText, children: [{ id: "invoiceList", labelKey: "invoiceList" }, { id: "issueInvoice", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
-  { labelKey: "cloudStore", icon: Store, children: [{ id: "cloudProducts", labelKey: "cloudProducts" }, { id: "cloudSettings", labelKey: "cloudSettings" }] },
   { id: "users", labelKey: "employeeManagement", icon: Users },
   { id: "settings", labelKey: "settings", icon: Settings },
 ];
