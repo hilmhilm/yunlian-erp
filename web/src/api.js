@@ -192,6 +192,12 @@ export async function uploadCategoryImage(token, id, file) {
   }));
 }
 
+export async function deleteCategoryImage(token, id) {
+  return normalizeCategory(await request(`/categories/${id}/image`, {
+    token, method: "DELETE",
+  }));
+}
+
 export async function createProduct(token, product) {
   const created = await request("/products", {
     token,
@@ -219,6 +225,12 @@ export async function uploadProductImage(token, id, file) {
     method: "PUT",
     headers: { "Content-Type": file.type },
     body: file,
+  }));
+}
+
+export async function deleteProductImage(token, id) {
+  return normalizeProduct(await request(`/products/${id}/image`, {
+    token, method: "DELETE",
   }));
 }
 

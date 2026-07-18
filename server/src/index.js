@@ -190,6 +190,15 @@ app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse
   const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[updated.rows[0].name]);
   res.json({...updated.rows[0],product_count:count.rows[0].product_count});
 }));
+app.delete("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const category=await pool.query("select * from product_categories where id=$1",[req.params.id]);
+  if(!category.rowCount)return res.status(404).json({error:"category not found"});
+  const updated=await pool.query("update product_categories set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
+  const previous=category.rows[0].image_url;
+  if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
+  const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[updated.rows[0].name]);
+  res.json({...updated.rows[0],product_count:count.rows[0].product_count});
+}));
 
 app.get("/api/products", asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
@@ -239,6 +248,15 @@ app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse",
   let updated;
   try{updated=await pool.query("update products set image_url=$1,updated_at=now() where id=$2 returning *",[`/uploads/${fileName}`,req.params.id])}
   catch(error){await unlink(filePath).catch(()=>{});throw error}
+  const previous=product.rows[0].image_url;
+  if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
+  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  res.json({...updated.rows[0],...statistics.rows[0]});
+}));
+app.delete("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), asyncRoute(async (req,res)=>{
+  const product=await pool.query("select * from products where id=$1",[req.params.id]);
+  if(!product.rowCount)return res.status(404).json({error:"product not found"});
+  const updated=await pool.query("update products set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
   const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
