@@ -400,7 +400,7 @@ app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), async
   });
   const netTotal=invoiceRound(items.reduce((sum,item)=>sum+item.netTotal,0),sale.currency),vatTotal=invoiceRound(items.reduce((sum,item)=>sum+item.vatTotal,0),sale.currency),grossTotal=invoiceRound(items.reduce((sum,item)=>sum+item.grossTotal,0),sale.currency);
   if(netTotal<=0)return res.status(409).json({error:"invoice total must be positive"});
-  const replacesInvoiceId=Number(b.replacesInvoiceId)||null;
+  let replacesInvoiceId=Number(b.replacesInvoiceId)||null;
   let documentType="invoice",parentInvoice=null;
   if(replacesInvoiceId){
     parentInvoice=(await pool.query("select * from invoices where id=$1 and sale_id=$2 and document_type in ('invoice','replacement')",[replacesInvoiceId,sale.id])).rows[0];
@@ -411,6 +411,8 @@ app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), async
   }else{
     const active=(await pool.query("select invoice_number from invoices i where sale_id=$1 and document_type in ('invoice','replacement') and status='issued' and not exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') order by i.id desc limit 1",[sale.id])).rows[0];
     if(active)return res.status(409).json({error:`invoice already issued: ${active.invoice_number}`});
+    const latestVoided=(await pool.query("select i.* from invoices i where i.sale_id=$1 and i.document_type in ('invoice','replacement') and i.status='issued' and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') order by i.id desc limit 1",[sale.id])).rows[0];
+    if(latestVoided){replacesInvoiceId=Number(latestVoided.id);parentInvoice=latestVoided;documentType="replacement"}
   }
   const externalId=replacesInvoiceId?`yunlian-sale-${sale.id}-replacement-${replacesInvoiceId}`:`yunlian-sale-${sale.id}`,existing=(await pool.query("select * from invoices where external_id=$1",[externalId])).rows[0];
   if(existing?.status==="issued")return res.status(409).json({error:`invoice already issued: ${existing.invoice_number}`});
@@ -441,7 +443,6 @@ app.post("/api/invoices/:id/storno", requireRole("admin","finance"), asyncRoute(
   if(reason.length<3)return res.status(400).json({error:"storno reason is required"});
   const source=(await pool.query("select i.*,s.order_no from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
   if(!source||source.status!=="issued")return res.status(409).json({error:"only an issued invoice can be voided"});
-  if((await pool.query("select 1 from invoices where parent_invoice_id=$1 and document_type='correction' and status='issued'",[source.id])).rowCount)return res.status(409).json({error:"a corrected invoice cannot be voided; create another correction instead"});
   const externalId=`yunlian-storno-${source.id}`,existing=(await pool.query("select * from invoices where external_id=$1",[externalId])).rows[0];
   if(existing?.status==="issued")return res.status(409).json({error:`invoice already voided: ${existing.invoice_number}`});
   if(existing?.status==="processing"&&Date.now()-new Date(existing.updated_at).getTime()<2*60*1000)return res.status(409).json({error:"storno is already in progress"});
@@ -466,7 +467,7 @@ app.post("/api/invoices/:id/corrections", requireRole("admin","finance"), asyncR
   if(!source||source.status!=="issued")return res.status(409).json({error:"only an issued invoice can be corrected"});
   if((await pool.query("select 1 from invoices where parent_invoice_id=$1 and document_type='storno' and status='issued'",[source.id])).rowCount)return res.status(409).json({error:"a voided invoice cannot be corrected"});
   const existing=(await pool.query("select * from invoices where parent_invoice_id=$1 and document_type='correction' order by id desc limit 1",[source.id])).rows[0];
-  if(existing?.status==="issued")return res.status(409).json({error:"this invoice already has a correction; further correction chains are not yet supported"});
+  if(existing?.status==="issued")return res.status(409).json({error:"this invoice has already been corrected and cannot be corrected again"});
   if(existing?.status==="processing"&&Date.now()-new Date(existing.updated_at).getTime()<2*60*1000)return res.status(409).json({error:"correction is already in progress"});
   const sourceItems=(await pool.query("select * from invoice_items where invoice_id=$1 order by id",[source.id])).rows;
   if(!sourceItems.length)return res.status(409).json({error:"invoice items are missing"});
