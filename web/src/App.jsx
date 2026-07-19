@@ -42,7 +42,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.19-11";
+const uiVersion = "2026.07.19-12";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -126,6 +126,31 @@ function Dashboard({ products, customers, sales, summary, setPage, lowStockThres
 }
 
 function Toolbar({ search, setSearch, onAdd, onSearch, onRefresh, busy=false, placeholder="搜索货号、条码或名称", actions=null, filter }) { const {t}=useI18n(); return <div className="toolbar"><div className="search-box"><Search size={17}/><input placeholder={placeholder} value={search} onChange={e=>setSearch(e.target.value)} onKeyDown={e=>e.key==="Enter"&&onSearch?.()}/></div>{filter===undefined?<select><option>{t("select")}</option><option>{t("all")}</option></select>:filter}<button className="primary" onClick={onSearch} disabled={busy}><Search size={16}/>{t("search")}</button><div className="toolbar-spacer"/><button className="outline" onClick={onRefresh} disabled={busy}><RefreshCw size={16}/>{t("refresh")}</button>{onAdd&&<button className="primary" onClick={onAdd} disabled={busy}><Plus size={16}/>{t("add")}</button>}{actions}</div>; }
+
+function InvoiceFilterSelect({value,onChange}) {
+  const {t}=useI18n();
+  return <select className="invoice-filter-select" value={value} onChange={event=>onChange(event.target.value)} aria-label={t("invoiceFilter")}>
+    <option value="all">{t("allInvoices")}</option>
+    <optgroup label={t("invoiceDocumentType")}>
+      {["invoice","replacement","correction","storno","cancellation"].map(type=><option key={type} value={`documentType:${type}`}>{t(`invoiceType_${type}`)}</option>)}
+    </optgroup>
+    <optgroup label={t("paymentMethod")}>
+      <option value="paymentMethod:cash">{t("cash")}</option><option value="paymentMethod:bank_transfer">{t("bankTransfer")}</option>
+    </optgroup>
+    <optgroup label={t("currencyChoice")}>
+      {["HUF","EUR","USD"].map(currency=><option key={currency} value={`currency:${currency}`}>{currency}</option>)}
+    </optgroup>
+    <optgroup label={t("invoiceStatus")}>
+      {["processing","issued","failed","corrected","voided","zeroed"].map(status=><option key={status} value={`lifecycleStatus:${status}`}>{t(`invoiceLifecycle_${status}`)}</option>)}
+    </optgroup>
+  </select>;
+}
+
+const invoiceMatchesFilter=(invoice,filter)=>{
+  if(!filter||filter==="all")return true;
+  const separator=filter.indexOf(":"),field=filter.slice(0,separator),value=filter.slice(separator+1);
+  return String(invoice[field]||"")===value;
+};
 
 function DataTable({ columns, rows, renderCell, onEdit, onDetail, onPrint, className="" }) { const {t}=useI18n(); return <div className={`table-wrap ${className}`}><table><thead><tr><th><input type="checkbox"/></th>{columns.map(c=><th key={c.key} style={c.width?{width:c.width,minWidth:c.width,maxWidth:c.width}:undefined}>{c.label}</th>)}<th>{t("actions")}</th></tr></thead><tbody>{rows.map((row)=><tr key={row.id}><td><input type="checkbox"/></td>{columns.map(c=><td key={c.key} style={c.width?{width:c.width,minWidth:c.width,maxWidth:c.width}:undefined}>{renderCell?renderCell(row,c):row[c.key]}</td>)}<td><div className="row-actions">{onEdit&&<button title={t("edit")} onClick={()=>onEdit(row)}><Pencil size={16}/></button>}{onDetail&&<button title={t("details")} onClick={()=>onDetail(row)}><ClipboardList size={16}/></button>}{onPrint&&<button title={t("printDeliveryNote")} onClick={()=>onPrint(row)}><Printer size={16}/></button>}</div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noData")}</div>}</div>; }
 function CompactTable({rows,columns}) { return <div className="compact-table">{rows.map(r=><div key={r.id}>{columns.map(c=><span key={c}>{c==="total"?money(r[c],r.currency):r[c]}</span>)}</div>)}</div>; }
@@ -367,9 +392,11 @@ function InvoiceWorkbench({sales,invoices,onLoadSales,onLoadSale,onLoadInvoice,o
 }
 
 function InvoiceList({invoices,onRefresh,onOpenPdf,loading,error}) {
-  const {t}=useI18n(),[search,setSearch]=useState("");
-  const rows=invoices.filter(invoice=>`${invoice.invoiceNumber}${invoice.orderNo}${invoice.customer}`.toLowerCase().includes(search.toLowerCase()));
-  return <Page><Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder={t("searchInvoices")}/>{error&&<div className="form-error page-error">{error}</div>}<div className="table-wrap invoice-list"><table><thead><tr><th>{t("invoiceNumber")}</th><th>{t("invoiceDocumentType")}</th><th>{t("salesOrderNo")}</th><th>{t("customer")}</th><th>{t("paymentMethod")}</th><th>{t("currencyChoice")}</th><th>{t("netTotal")}</th><th>{t("vatTotal")}</th><th>{t("grossTotal")}</th><th>{t("invoiceStatus")}</th><th>{t("createdAt")}</th><th>{t("actions")}</th></tr></thead><tbody>{rows.map(invoice=><tr key={invoice.id}><td><b>{invoice.invoiceNumber||"—"}</b></td><td>{t(`invoiceType_${invoice.documentType}`)}</td><td>{invoice.orderNo}</td><td>{invoice.customer||"—"}</td><td>{t(invoice.paymentMethod==="cash"?"cash":"bankTransfer")}</td><td>{invoice.currency}</td><td>{money(invoice.netTotal,invoice.currency)}</td><td>{money(invoice.vatTotal,invoice.currency)}</td><td><b>{money(invoice.grossTotal,invoice.currency)}</b></td><td><span className={`invoice-status ${invoice.lifecycleStatus}`}>{t(`invoiceLifecycle_${invoice.lifecycleStatus}`)}</span>{invoice.errorMessage&&<small className="invoice-error-text">{invoice.errorMessage}</small>}</td><td>{invoice.createdAt?new Date(invoice.createdAt).toLocaleString():"—"}</td><td><div className="row-actions">{invoice.status==="issued"&&<><button title={t("printInvoice")} onClick={()=>onOpenPdf(invoice.id,false)}><Printer size={16}/></button><button title={t("downloadInvoice")} onClick={()=>onOpenPdf(invoice.id,true)}><Download size={16}/></button></>}</div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noInvoices")}</div>}</div></Page>;
+  const {t}=useI18n(),[search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[query,setQuery]=useState({search:"",filter:"all"});
+  const applyQuery=()=>setQuery({search:search.trim().toLowerCase(),filter});
+  const refresh=()=>{setSearch("");setFilter("all");setQuery({search:"",filter:"all"});onRefresh()};
+  const rows=invoices.filter(invoice=>`${invoice.invoiceNumber}${invoice.orderNo}${invoice.customer}`.toLowerCase().includes(query.search)&&invoiceMatchesFilter(invoice,query.filter));
+  return <Page><Toolbar search={search} setSearch={setSearch} filter={<InvoiceFilterSelect value={filter} onChange={setFilter}/>} onSearch={applyQuery} onRefresh={refresh} busy={loading} placeholder={t("searchInvoices")}/>{error&&<div className="form-error page-error">{error}</div>}<div className="table-wrap invoice-list"><table><thead><tr><th>{t("invoiceNumber")}</th><th>{t("invoiceDocumentType")}</th><th>{t("salesOrderNo")}</th><th>{t("customer")}</th><th>{t("paymentMethod")}</th><th>{t("currencyChoice")}</th><th>{t("netTotal")}</th><th>{t("vatTotal")}</th><th>{t("grossTotal")}</th><th>{t("invoiceStatus")}</th><th>{t("createdAt")}</th><th>{t("actions")}</th></tr></thead><tbody>{rows.map(invoice=><tr key={invoice.id}><td><b>{invoice.invoiceNumber||"—"}</b></td><td>{t(`invoiceType_${invoice.documentType}`)}</td><td>{invoice.orderNo}</td><td>{invoice.customer||"—"}</td><td>{t(invoice.paymentMethod==="cash"?"cash":"bankTransfer")}</td><td>{invoice.currency}</td><td>{money(invoice.netTotal,invoice.currency)}</td><td>{money(invoice.vatTotal,invoice.currency)}</td><td><b>{money(invoice.grossTotal,invoice.currency)}</b></td><td><span className={`invoice-status ${invoice.lifecycleStatus}`}>{t(`invoiceLifecycle_${invoice.lifecycleStatus}`)}</span>{invoice.errorMessage&&<small className="invoice-error-text">{invoice.errorMessage}</small>}</td><td>{invoice.createdAt?new Date(invoice.createdAt).toLocaleString():"—"}</td><td><div className="row-actions">{invoice.status==="issued"&&<><button title={t("printInvoice")} onClick={()=>onOpenPdf(invoice.id,false)}><Printer size={16}/></button><button title={t("downloadInvoice")} onClick={()=>onOpenPdf(invoice.id,true)}><Download size={16}/></button></>}</div></td></tr>)}</tbody></table>{!rows.length&&<div className="empty">{t("noInvoices")}</div>}</div></Page>;
 }
 
 function InvoiceIssuePage({sales,invoices,onLoadSales,onLoadSale,onCreate,onRefreshInvoices,onOpenPdf,settings,loading,error}) {
@@ -385,12 +412,14 @@ function InvoiceIssuePage({sales,invoices,onLoadSales,onLoadSale,onCreate,onRefr
 
 function InvoiceManagementList({invoices,onRefresh,onOpenPdf,onLoadSale,onLoadInvoice,onCreate,onStorno,onCorrect,settings,loading,error,canManage}) {
   const {t}=useI18n();
-  const [search,setSearch]=useState(""),[loadError,setLoadError]=useState(""),[invoiceSale,setInvoiceSale]=useState(null),[replacementSource,setReplacementSource]=useState(null),[saleLoading,setSaleLoading]=useState(false),[stornoTarget,setStornoTarget]=useState(null),[correctionTarget,setCorrectionTarget]=useState(null);
-  const rows=invoices.filter(invoice=>`${invoice.invoiceNumber}${invoice.orderNo}${invoice.customer}`.toLowerCase().includes(search.toLowerCase()));
+  const [search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[query,setQuery]=useState({search:"",filter:"all"}),[loadError,setLoadError]=useState(""),[invoiceSale,setInvoiceSale]=useState(null),[replacementSource,setReplacementSource]=useState(null),[saleLoading,setSaleLoading]=useState(false),[stornoTarget,setStornoTarget]=useState(null),[correctionTarget,setCorrectionTarget]=useState(null);
+  const rows=invoices.filter(invoice=>`${invoice.invoiceNumber}${invoice.orderNo}${invoice.customer}`.toLowerCase().includes(query.search)&&invoiceMatchesFilter(invoice,query.filter));
+  const applyQuery=()=>setQuery({search:search.trim().toLowerCase(),filter});
+  const refresh=()=>{setSearch("");setFilter("all");setQuery({search:"",filter:"all"});onRefresh()};
   const openReissue=async invoice=>{setSaleLoading(true);setLoadError("");setReplacementSource(invoice);setInvoiceSale({databaseId:invoice.saleId,items:[]});try{setInvoiceSale(await onLoadSale(invoice.saleId))}catch(loadFailure){setLoadError(loadFailure.message)}finally{setSaleLoading(false)}};
   const openCorrection=async invoice=>{setLoadError("");try{setCorrectionTarget(await onLoadInvoice(invoice.id))}catch(loadFailure){setLoadError(loadFailure.message)}};
   return <Page><div className="invoice-management-page">
-    <Toolbar search={search} setSearch={setSearch} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder={t("searchInvoices")}/>
+    <Toolbar search={search} setSearch={setSearch} filter={<InvoiceFilterSelect value={filter} onChange={setFilter}/>} onSearch={applyQuery} onRefresh={refresh} busy={loading} placeholder={t("searchInvoices")}/>
     {(error||loadError)&&<div className="form-error page-error">{error||loadError}</div>}
     <div className="table-wrap invoice-list invoice-management-table"><table><thead><tr><th>{t("invoiceNumber")}</th><th>{t("invoiceDocumentType")}</th><th>{t("salesOrderNo")}</th><th>{t("customer")}</th><th>{t("paymentMethod")}</th><th>{t("currencyChoice")}</th><th>{t("netTotal")}</th><th>{t("vatTotal")}</th><th>{t("grossTotal")}</th><th>{t("invoiceStatus")}</th><th>{t("createdAt")}</th><th>{t("actions")}</th></tr></thead><tbody>{rows.map(invoice=>{
       const base=["invoice","replacement"].includes(invoice.documentType),correctable=base&&invoice.status==="issued"&&invoice.lifecycleStatus==="issued",voidable=base&&invoice.status==="issued"&&["issued","corrected"].includes(invoice.lifecycleStatus),closed=base&&["voided","zeroed"].includes(invoice.lifecycleStatus),zeroing=invoice.lifecycleStatus==="corrected";
