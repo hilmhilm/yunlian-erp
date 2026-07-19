@@ -147,6 +147,10 @@ const normalizeInvoice = invoice => ({
   saleId: Number(invoice.sale_id ?? invoice.saleId),
   orderNo: invoice.order_no ?? invoice.orderNo ?? "",
   invoiceNumber: invoice.invoice_number ?? invoice.invoiceNumber ?? "",
+  documentType: invoice.document_type ?? invoice.documentType ?? "invoice",
+  lifecycleStatus: invoice.lifecycle_status ?? invoice.lifecycleStatus ?? invoice.status ?? "processing",
+  parentInvoiceId: Number(invoice.parent_invoice_id ?? invoice.parentInvoiceId) || null,
+  parentInvoiceNumber: invoice.parent_invoice_number ?? invoice.parentInvoiceNumber ?? "",
   paymentMethod: invoice.payment_method ?? invoice.paymentMethod ?? "cash",
   fulfillmentDate: invoice.fulfillment_date ?? invoice.fulfillmentDate ?? "",
   dueDate: invoice.due_date ?? invoice.dueDate ?? "",
@@ -155,6 +159,14 @@ const normalizeInvoice = invoice => ({
   grossTotal: Number(invoice.gross_total ?? invoice.grossTotal ?? 0),
   priceFactor: Number(invoice.price_factor ?? invoice.priceFactor ?? 1),
   errorMessage: invoice.error_message ?? invoice.errorMessage ?? "",
+  reason: invoice.reason ?? "",
+  buyerName: invoice.buyer_name ?? invoice.buyerName ?? "",
+  buyerCountry: invoice.buyer_country ?? invoice.buyerCountry ?? "",
+  buyerPostalCode: invoice.buyer_postal_code ?? invoice.buyerPostalCode ?? "",
+  buyerCity: invoice.buyer_city ?? invoice.buyerCity ?? "",
+  buyerAddress: invoice.buyer_address ?? invoice.buyerAddress ?? "",
+  buyerTaxNumber: invoice.buyer_tax_number ?? invoice.buyerTaxNumber ?? "",
+  buyerEmail: invoice.buyer_email ?? invoice.buyerEmail ?? "",
   createdAt: invoice.created_at ?? invoice.createdAt ?? null,
   issuedAt: invoice.issued_at ?? invoice.issuedAt ?? null,
 });
@@ -361,10 +373,23 @@ export async function fetchInvoices(token) {
   return (await request("/invoices", { token })).map(normalizeInvoice);
 }
 
+export async function fetchInvoice(token, invoiceId) {
+  const invoice=normalizeInvoice(await request(`/invoices/${invoiceId}`,{token}));
+  return {...invoice,items:(invoice.items||[]).map(item=>({...item,id:Number(item.id),quantity:Number(item.quantity),netUnitPrice:Number(item.net_unit_price??item.netUnitPrice??0)})),related:(invoice.related||[]).map(normalizeInvoice)};
+}
+
 export async function createInvoice(token, saleId, invoice) {
   return normalizeInvoice(await request(`/sales/${saleId}/invoice`, {
     token, method: "POST", body: JSON.stringify(invoice),
   }));
+}
+
+export async function stornoInvoice(token, invoiceId, reason) {
+  return normalizeInvoice(await request(`/invoices/${invoiceId}/storno`,{token,method:"POST",body:JSON.stringify({reason})}));
+}
+
+export async function correctInvoice(token, invoiceId, correction) {
+  return normalizeInvoice(await request(`/invoices/${invoiceId}/corrections`,{token,method:"POST",body:JSON.stringify(correction)}));
 }
 
 export async function fetchInvoicePdf(token, invoiceId) {
