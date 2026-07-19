@@ -356,7 +356,7 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
 }));
 
 app.get("/api/invoices", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select i.*,s.order_no,coalesce(nullif(i.buyer_name,''),c.name) customer,p.invoice_number parent_invoice_number,case when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') then 'voided' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='correction' and x.status='issued') then 'corrected' else i.status end lifecycle_status from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id left join invoices p on p.id=i.parent_invoice_id order by i.created_at desc limit 500");
+  const result=await pool.query("select i.*,s.order_no,coalesce(nullif(i.buyer_name,''),c.name) customer,p.invoice_number parent_invoice_number,case when exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') then 'voided' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='correction' and x.status='issued' and not exists(select 1 from invoices sx where sx.parent_invoice_id=x.id and sx.document_type='storno' and sx.status='issued')) then 'corrected' else i.status end lifecycle_status from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id left join invoices p on p.id=i.parent_invoice_id order by i.created_at desc limit 500");
   res.json(result.rows);
 }));
 
@@ -443,19 +443,25 @@ app.post("/api/invoices/:id/storno", requireRole("admin","finance"), asyncRoute(
   if(reason.length<3)return res.status(400).json({error:"storno reason is required"});
   const source=(await pool.query("select i.*,s.order_no from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
   if(!source||source.status!=="issued")return res.status(409).json({error:"only an issued invoice can be voided"});
-  const externalId=`yunlian-storno-${source.id}`,existing=(await pool.query("select * from invoices where external_id=$1",[externalId])).rows[0];
-  if(existing?.status==="issued")return res.status(409).json({error:`invoice already voided: ${existing.invoice_number}`});
-  if(existing?.status==="processing"&&Date.now()-new Date(existing.updated_at).getTime()<2*60*1000)return res.status(409).json({error:"storno is already in progress"});
-  const copied=[source.payment_method,source.fulfillment_date,source.due_date,source.currency,source.exchange_rate,source.exchange_rate_bank,source.price_factor,-Number(source.net_total),-Number(source.vat_total),-Number(source.gross_total),reason,source.buyer_name,source.buyer_country,source.buyer_postal_code,source.buyer_city,source.buyer_address,source.buyer_tax_number,source.buyer_email];
-  const storno=existing?(await pool.query("update invoices set status='processing',reason=$1,error_code='',error_message='',updated_at=now() where id=$2 returning *",[reason,existing.id])).rows[0]:(await pool.query("insert into invoices(sale_id,external_id,document_type,parent_invoice_id,payment_method,fulfillment_date,due_date,currency,exchange_rate,exchange_rate_bank,price_factor,net_total,vat_total,gross_total,reason,buyer_name,buyer_country,buyer_postal_code,buyer_city,buyer_address,buyer_tax_number,buyer_email,created_by) values($1,$2,'storno',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) returning *",[source.sale_id,externalId,source.id,...copied,req.user.username])).rows[0];
-  try{
-    const recovered=existing?await queryInvoicePdf(agentKey,externalId):null;
-    const issueDate=new Intl.DateTimeFormat("sv-SE",{timeZone:businessTimezone}).format(new Date());
-    const issued=recovered||await sendStornoXml(createStornoXml({agentKey,externalId,invoiceNumber:source.invoice_number,issueDate})),fileName=`invoice-${storno.id}-${crypto.randomUUID()}.pdf`;
-    await writeFile(path.join(invoiceDirectory,fileName),issued.pdf,{flag:"wx"});
-    const client=await pool.connect();
-    try{await client.query("begin");await client.query("delete from invoice_items where invoice_id=$1",[storno.id]);await client.query("insert into invoice_items(invoice_id,sale_item_id,product_id,sku,name,unit,quantity,net_unit_price,vat_rate,net_total,vat_total,gross_total) select $1,sale_item_id,product_id,sku,name,unit,-quantity,net_unit_price,vat_rate,-net_total,-vat_total,-gross_total from invoice_items where invoice_id=$2",[storno.id,source.id]);const updated=await client.query("update invoices set status='issued',invoice_number=$1,pdf_path=$2,issued_at=now(),updated_at=now() where id=$3 returning *",[issued.invoiceNumber,fileName,storno.id]);await client.query("commit");res.status(201).json(updated.rows[0])}catch(error){await client.query("rollback");throw error}finally{client.release()}
-  }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"storno failed").slice(0,2000),storno.id]);throw error}
+  const reverseDocument=async(document,documentReason)=>{
+    const externalId=`yunlian-storno-${document.id}`,existing=(await pool.query("select * from invoices where external_id=$1",[externalId])).rows[0];
+    if(existing?.status==="issued")return existing;
+    if(existing?.status==="processing"&&Date.now()-new Date(existing.updated_at).getTime()<2*60*1000){const error=new Error("storno is already in progress");error.status=409;throw error}
+    const copied=[document.payment_method,document.fulfillment_date,document.due_date,document.currency,document.exchange_rate,document.exchange_rate_bank,document.price_factor,-Number(document.net_total),-Number(document.vat_total),-Number(document.gross_total),documentReason,document.buyer_name,document.buyer_country,document.buyer_postal_code,document.buyer_city,document.buyer_address,document.buyer_tax_number,document.buyer_email];
+    const storno=existing?(await pool.query("update invoices set status='processing',reason=$1,error_code='',error_message='',updated_at=now() where id=$2 returning *",[documentReason,existing.id])).rows[0]:(await pool.query("insert into invoices(sale_id,external_id,document_type,parent_invoice_id,payment_method,fulfillment_date,due_date,currency,exchange_rate,exchange_rate_bank,price_factor,net_total,vat_total,gross_total,reason,buyer_name,buyer_country,buyer_postal_code,buyer_city,buyer_address,buyer_tax_number,buyer_email,created_by) values($1,$2,'storno',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22) returning *",[document.sale_id,externalId,document.id,...copied,req.user.username])).rows[0];
+    try{
+      const recovered=existing?await queryInvoicePdf(agentKey,externalId):null;
+      const issueDate=new Intl.DateTimeFormat("sv-SE",{timeZone:businessTimezone}).format(new Date());
+      const issued=recovered||await sendStornoXml(createStornoXml({agentKey,externalId,invoiceNumber:document.invoice_number,issueDate})),fileName=`invoice-${storno.id}-${crypto.randomUUID()}.pdf`;
+      await writeFile(path.join(invoiceDirectory,fileName),issued.pdf,{flag:"wx"});
+      const client=await pool.connect();
+      try{await client.query("begin");await client.query("delete from invoice_items where invoice_id=$1",[storno.id]);await client.query("insert into invoice_items(invoice_id,sale_item_id,product_id,sku,name,unit,quantity,net_unit_price,vat_rate,net_total,vat_total,gross_total) select $1,sale_item_id,product_id,sku,name,unit,-quantity,net_unit_price,vat_rate,-net_total,-vat_total,-gross_total from invoice_items where invoice_id=$2",[storno.id,document.id]);const updated=await client.query("update invoices set status='issued',invoice_number=$1,pdf_path=$2,issued_at=now(),updated_at=now() where id=$3 returning *",[issued.invoiceNumber,fileName,storno.id]);await client.query("commit");return updated.rows[0]}catch(error){await client.query("rollback");throw error}finally{client.release()}
+    }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"storno failed").slice(0,2000),storno.id]);throw error}
+  };
+  const correction=(await pool.query("select c.* from invoices c where c.parent_invoice_id=$1 and c.document_type='correction' and c.status='issued' and not exists(select 1 from invoices sx where sx.parent_invoice_id=c.id and sx.document_type='storno' and sx.status='issued') order by c.id desc limit 1",[source.id])).rows[0];
+  if(correction)await reverseDocument(correction,`Automatikus helyesbítés-sztornó / 自动作废更正发票: ${reason}`.slice(0,1000));
+  const updated=await reverseDocument(source,reason);
+  res.status(201).json(updated);
 }));
 
 app.post("/api/invoices/:id/corrections", requireRole("admin","finance"), asyncRoute(async (req,res)=>{
