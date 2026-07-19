@@ -110,7 +110,7 @@ const normalizePurchase = (purchase) => ({
 
 const normalizeSale = (sale) => ({
   ...sale,
-  databaseId: sale.id,
+  databaseId: Number(sale.id),
   id: sale.order_no ?? sale.id,
   date: formatDate(sale.created_at),
   qty: Number(sale.quantity || 0),
