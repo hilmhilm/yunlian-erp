@@ -79,6 +79,28 @@ const getSystemSettings = async (client=pool) => (await client.query("select * f
 const isoDatePattern=/^\d{4}-\d{2}-\d{2}$/;
 const validIsoDate=value=>isoDatePattern.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
 const invoiceRound=(value,currency)=>Number(Number(value).toFixed(currency==="HUF"?0:2));
+const auditMethods=new Set(["POST","PUT","PATCH","DELETE"]);
+const auditSensitiveKey=/password|passcode|token|secret|authorization|agent.?key|api.?key/i;
+const sanitizeAuditValue=(value,depth=0)=>{
+  if(depth>5)return "[maximum depth]";
+  if(Buffer.isBuffer(value))return {fileType:"binary",size:value.length};
+  if(Array.isArray(value))return value.slice(0,200).map(item=>sanitizeAuditValue(item,depth+1));
+  if(value&&typeof value==="object")return Object.fromEntries(Object.entries(value).filter(([key])=>!auditSensitiveKey.test(key)).map(([key,item])=>[key,sanitizeAuditValue(item,depth+1)]));
+  if(typeof value==="string")return value.slice(0,1000);
+  return value;
+};
+const auditMetadata=(path,method)=>{
+  const parts=path.replace(/^\/api\//,"").split("/").filter(Boolean),root=parts[0]||"system",id=parts[1]||"";
+  if(root==="sales"&&parts[2]==="payments")return {module:"finance",action:"record_payment",entityType:"sale",entityId:id};
+  if(root==="sales"&&parts[2]==="returns")return {module:"inventory",action:"return_sale",entityType:"sale",entityId:id};
+  if(root==="sales"&&parts[2]==="status")return {module:"inventory",action:"update_sale_status",entityType:"sale",entityId:id};
+  if(root==="sales"&&parts[2]==="invoice")return {module:"invoices",action:"issue_invoice",entityType:"sale",entityId:id};
+  if(root==="invoices"&&parts[2]==="corrections")return {module:"invoices",action:"correct_invoice",entityType:"invoice",entityId:id};
+  if(root==="invoices"&&parts[2]==="storno")return {module:"invoices",action:"void_invoice",entityType:"invoice",entityId:id};
+  const modules={settings:"system",users:"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices"};
+  const entities={settings:"settings",users:"user",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice"};
+  return {module:modules[root]||root,action:{POST:"create",PUT:"update",PATCH:"update",DELETE:"delete"}[method]||"change",entityType:entities[root]||root,entityId:id};
+};
 
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USERNAME || "admin";
@@ -118,7 +140,33 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
 
 app.use("/api", asyncRoute(auth));
 
+app.use("/api",(req,res,next)=>{
+  if(!auditMethods.has(req.method))return next();
+  const requestPath=req.originalUrl.split("?")[0],metadata=auditMetadata(requestPath,req.method),startedAt=Date.now();
+  let responseTarget={};
+  const sendJson=res.json.bind(res);
+  res.json=body=>{if(body&&typeof body==="object"&&!Array.isArray(body)){responseTarget=sanitizeAuditValue(Object.fromEntries(Object.entries(body).filter(([key])=>["id","order_no","invoice_number","sku","name","username"].includes(key))))}return sendJson(body)};
+  res.on("finish",()=>{
+    const contentType=String(req.headers["content-type"]||""),requestDetails=Buffer.isBuffer(req.body)?{fileType:contentType,size:req.body.length}:sanitizeAuditValue(req.body||{});
+    const details={request:requestDetails,response:responseTarget,durationMs:Date.now()-startedAt};
+    pool.query("insert into audit_logs(user_id,username,user_role,module,action,entity_type,entity_id,http_method,request_path,status_code,success,details,ip_address) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",[req.user.id,req.user.username,req.user.role,metadata.module,metadata.action,metadata.entityType,metadata.entityId,req.method,requestPath,res.statusCode,res.statusCode>=200&&res.statusCode<400,details,String(req.ip||req.socket.remoteAddress||"").slice(0,100)]).catch(error=>console.error("Audit log write failed",error));
+  });
+  next();
+});
+
 app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role } }));
+
+app.get("/api/audit-logs",requireRole("admin"),asyncRoute(async(req,res)=>{
+  const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),module=String(req.query.module||"").trim(),search=String(req.query.search||"").trim();
+  if((startDate&&!validIsoDate(startDate))||(endDate&&!validIsoDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
+  const params=startDate||endDate?[businessTimezone]:[],filters=[];
+  if(startDate){params.push(startDate);filters.push(`created_at >= ($${params.length}::date at time zone $1)`) }
+  if(endDate){params.push(endDate);filters.push(`created_at < (($${params.length}::date + 1) at time zone $1)`) }
+  if(module){params.push(module);filters.push(`module=$${params.length}`)}
+  if(search){params.push(`%${search}%`);filters.push(`(username ilike $${params.length} or entity_id ilike $${params.length} or request_path ilike $${params.length} or details::text ilike $${params.length})`)}
+  const result=await pool.query(`select id,created_at,username,user_role,module,action,entity_type,entity_id,http_method,request_path,status_code,success,details,ip_address from audit_logs ${filters.length?`where ${filters.join(" and ")}`:""} order by created_at desc,id desc limit 1000`,params);
+  res.json(result.rows);
+}));
 
 app.get("/api/settings", asyncRoute(async (_req,res)=>res.json(await getSystemSettings())));
 app.patch("/api/settings", requireRole("admin"), asyncRoute(async (req,res)=>{

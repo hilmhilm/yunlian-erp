@@ -465,3 +465,22 @@ export async function updateSettings(token, settings) {
     }),
   }));
 }
+
+export async function fetchAuditLogs(token, { startDate = "", endDate = "", module = "", search = "" } = {}) {
+  const query=new URLSearchParams();
+  if(startDate)query.set("startDate",startDate);
+  if(endDate)query.set("endDate",endDate);
+  if(module)query.set("module",module);
+  if(search)query.set("search",search);
+  return (await request(`/audit-logs${query.size?`?${query}`:""}`,{token})).map(log=>({
+    ...log,
+    createdAt:log.created_at??log.createdAt,
+    userRole:log.user_role??log.userRole,
+    entityType:log.entity_type??log.entityType,
+    entityId:log.entity_id??log.entityId,
+    httpMethod:log.http_method??log.httpMethod,
+    requestPath:log.request_path??log.requestPath,
+    statusCode:Number(log.status_code??log.statusCode??0),
+    ipAddress:log.ip_address??log.ipAddress??"",
+  }));
+}

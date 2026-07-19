@@ -3,24 +3,24 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Ban, FilePenLine, RotateCcw,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Ban, FilePenLine, RotateCcw, ScrollText,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest, createInvoice as createInvoiceRequest, deleteCategoryImage as deleteCategoryImageRequest, deleteProductImage as deleteProductImageRequest,
   createCategory as createCategoryRequest, createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
   createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCategories, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchPickingSale, fetchPickingSales, fetchProduct, fetchProducts, fetchSale,
-  correctInvoice as correctInvoiceRequest, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchPurchases, fetchReportSummary, fetchSales, fetchSettings, fetchUsers, getStoredSession, stornoInvoice as stornoInvoiceRequest,
+  correctInvoice as correctInvoiceRequest, fetchAuditLogs, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchPurchases, fetchReportSummary, fetchSales, fetchSettings, fetchUsers, getStoredSession, stornoInvoice as stornoInvoiceRequest,
   login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateCustomer as updateCustomerRequest, updateProduct as updateProductRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateSettings as updateSettingsRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", sales: "salesList", pickingLists: "pickingList", pickingNote: "pickingList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", users: "employeeManagement", settings: "settings" };
+const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", sales: "salesList", pickingLists: "pickingList", pickingNote: "pickingList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", users: "employeeManagement", auditLogs: "auditLogs", settings: "settings" };
 const pageTargets = { scanSales: "pos", flowDetails: "reports", orderFinance: "reports" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
   customers: ["admin","sales","finance"], sales: ["admin","sales","finance"], pickingLists: ["admin","warehouse"], pickingNote: ["admin","warehouse"],
-  pos: ["admin","sales"], collectorSales: ["admin","sales"], saleSettlement: ["admin","sales","finance"], deliveryNote: ["admin","sales","finance"], invoiceList: ["admin","sales","finance"], issueInvoice: ["admin","sales","finance"], reports: ["admin","finance"], users: ["admin"],
+  pos: ["admin","sales"], collectorSales: ["admin","sales"], saleSettlement: ["admin","sales","finance"], deliveryNote: ["admin","sales","finance"], invoiceList: ["admin","sales","finance"], issueInvoice: ["admin","sales","finance"], reports: ["admin","finance"], users: ["admin"], auditLogs: ["admin"],
 };
 const canAccess = (role,page) => !pageRoles[pageTargets[page]||page] || pageRoles[pageTargets[page]||page].includes(role);
 
@@ -33,6 +33,7 @@ const menu = [
   { labelKey: "invoice", icon: FileText, children: [{ id: "invoiceList", labelKey: "invoiceList" }, { id: "issueInvoice", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
   { id: "users", labelKey: "employeeManagement", icon: Users },
+  { id: "auditLogs", labelKey: "auditLogs", icon: ScrollText },
   { id: "settings", labelKey: "settings", icon: Settings },
 ];
 
@@ -42,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.19-12";
+const uiVersion = "2026.07.20-1";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -569,6 +570,28 @@ function CollectorSales({products,onSaveSale,onImported,defaultCurrency="HUF"}) 
 
 function Reports({products,summary}) { const {t}=useI18n(),totals=summary?.salesTotals||{HUF:0,EUR:0,USD:0},stock=summary?.stockTotal??products.reduce((s,p)=>s+p.stock,0);return <Page><div className="report-summary"><Stat icon={ShoppingCart} color="#3f9fea" label={t("salesHuf")} value={money(totals.HUF,"HUF")} suffix={t("currentPeriod")}/><Stat icon={ShoppingCart} color="#26b99a" label={t("salesEur")} value={money(totals.EUR,"EUR")} suffix={t("currentPeriod")}/><Stat icon={CircleDollarSign} color="#f05a78" label={t("salesUsd")} value={money(totals.USD,"USD")} suffix={t("currentPeriod")}/><Stat icon={Warehouse} color="#f6a43a" label={t("inventory")} value={stock} suffix={t("pieces")}/></div><section className="panel reports-panel"><h2>报表</h2>{[["货物",["入库报表","采购价格变动","库存报表","调拨分析报表","库存盘点报表","进销存报表"]],["客户",["客户报表","客户账目分析"]],["销售",["销售报表","销售分析","销售趋势图","客单价报表","销售饼状图","利润报表"]],["财务",["财务流水报表","还款报表","日结单","月结单","业绩报表"]]].map(([g,items])=><div className="report-group" key={g}><h3>{g}</h3><div>{items.map((x,i)=><button key={x}><FileBarChart size={18} color={["#3f9fea","#f6a43a","#26b99a"][i%3]}/>{x}</button>)}</div></div>)}</section></Page>; }
 
+const auditModules=["system","users","categories","products","customers","inventory","sales","finance","invoices"];
+const auditDetailsPreview=details=>{
+  const request=details?.request||{},entries=Object.entries(request);
+  if(request.fileType)return `${request.fileType} · ${request.size||0} B`;
+  if(!entries.length)return "—";
+  return entries.slice(0,4).map(([key,value])=>`${key}: ${typeof value==="object"?JSON.stringify(value):String(value)}`).join("; ").slice(0,180);
+};
+
+function AuditLogDetailModal({log,onClose}) {
+  const {t}=useI18n();
+  return <Modal title={`${t("auditLogDetails")} · #${log.id}`} onClose={onClose} wide><div className="audit-detail-summary"><span><small>{t("operationTime")}</small><b>{new Date(log.createdAt).toLocaleString()}</b></span><span><small>{t("operator")}</small><b>{log.username}</b></span><span><small>{t("auditModule")}</small><b>{t(`auditModule_${log.module}`)}</b></span><span><small>{t("auditAction")}</small><b>{t(`auditAction_${log.action}`)}</b></span><span><small>{t("operationObject")}</small><b>{t(`auditEntity_${log.entityType}`,log.entityType)} {log.entityId||log.details?.response?.id||""}</b></span><span><small>{t("operationResult")}</small><b className={log.success?"audit-success":"audit-failed"}>{t(log.success?"operationSucceeded":"operationFailed")} · HTTP {log.statusCode}</b></span></div><div className="audit-request-path"><b>{log.httpMethod}</b> {log.requestPath}</div><div className="audit-detail-json"><h3>{t("changeContent")}</h3><pre>{JSON.stringify(log.details?.request||{},null,2)}</pre>{Object.keys(log.details?.response||{}).length>0&&<><h3>{t("operationTarget")}</h3><pre>{JSON.stringify(log.details.response,null,2)}</pre></>}</div><div className="modal-actions"><button className="primary" onClick={onClose}>{t("close")}</button></div></Modal>;
+}
+
+function AuditLogPage({token}) {
+  const {t}=useI18n();
+  const [rows,setRows]=useState([]),[search,setSearch]=useState(""),[module,setModule]=useState(""),[startDate,setStartDate]=useState(localDateValue),[endDate,setEndDate]=useState(localDateValue),[loading,setLoading]=useState(false),[error,setError]=useState(""),[detail,setDetail]=useState(null);
+  const load=async(filters={startDate,endDate,module,search})=>{if(filters.startDate&&filters.endDate&&filters.startDate>filters.endDate)return setError(t("invalidDateRange"));setLoading(true);setError("");try{setRows(await fetchAuditLogs(token,filters))}catch(loadError){setError(loadError.message)}finally{setLoading(false)}};
+  useEffect(()=>{load({startDate:localDateValue(),endDate:localDateValue(),module:"",search:""})},[token]);
+  const moduleFilter=<select value={module} onChange={event=>setModule(event.target.value)} aria-label={t("auditModule")}><option value="">{t("allModules")}</option>{auditModules.map(item=><option key={item} value={item}>{t(`auditModule_${item}`)}</option>)}</select>;
+  return <Page><div className="audit-log-page"><Toolbar search={search} setSearch={setSearch} filter={moduleFilter} onSearch={()=>load()} onRefresh={()=>load()} busy={loading} placeholder={t("searchAuditLogs")}/><div className="date-filter"><label>{t("startDate")}<input type="date" value={startDate} max={endDate||undefined} onChange={event=>setStartDate(event.target.value)}/></label><span>—</span><label>{t("endDate")}<input type="date" value={endDate} min={startDate||undefined} onChange={event=>setEndDate(event.target.value)}/></label><button className="primary" onClick={()=>load()} disabled={loading}><Search size={16}/>{t("queryDateRange")}</button><button className="outline" onClick={()=>{setStartDate("");setEndDate("");load({startDate:"",endDate:"",module,search})}} disabled={loading}>{t("allDates")}</button></div>{error&&<div className="form-error page-error">{error}</div>}<div className="table-wrap audit-log-table"><table><thead><tr><th>{t("operationTime")}</th><th>{t("operator")}</th><th>{t("role")}</th><th>{t("auditModule")}</th><th>{t("auditAction")}</th><th>{t("operationObject")}</th><th>{t("changeContent")}</th><th>{t("operationResult")}</th><th>{t("actions")}</th></tr></thead><tbody>{rows.map(log=><tr key={log.id}><td>{new Date(log.createdAt).toLocaleString()}</td><td><b>{log.username}</b></td><td>{t(`role_${log.userRole}`)}</td><td>{t(`auditModule_${log.module}`)}</td><td>{t(`auditAction_${log.action}`)}</td><td>{t(`auditEntity_${log.entityType}`,log.entityType)} {log.entityId||log.details?.response?.id||""}</td><td><span className="audit-content-preview">{auditDetailsPreview(log.details)}</span></td><td><span className={`status ${log.success?"done":"pending"}`}>{t(log.success?"operationSucceeded":"operationFailed")} · {log.statusCode}</span></td><td><button className="audit-detail-button" title={t("details")} onClick={()=>setDetail(log)}><ClipboardList size={16}/></button></td></tr>)}</tbody></table>{!rows.length&&!loading&&<div className="empty">{t("noAuditLogs")}</div>}{loading&&<div className="empty">{t("loading")}</div>}</div>{detail&&<AuditLogDetailModal log={detail} onClose={()=>setDetail(null)}/>}</div></Page>;
+}
+
 function SettingsPage({currentUser,settings,onSaveSettings,onOpenEmployees}) {
   const {t}=useI18n();
   const [form,setForm]=useState(settings),[saving,setSaving]=useState(false),[error,setError]=useState(""),[saved,setSaved]=useState(false);
@@ -683,6 +706,7 @@ export function App() {
     collectorSales:<CollectorSales products={products} onSaveSale={addSale} onImported={openSaleForEdit} defaultCurrency={systemSettings.defaultCurrency}/>,
     reports:<Reports products={products} summary={reportSummary}/>,
     users:<UserManagementPage currentUser={session.user} users={users} onCreateUser={addUser} onUpdateUser={changeUser} loading={dataLoading} error={dataError}/>,
+    auditLogs:<AuditLogPage token={session.token}/>,
     settings:<SettingsPage currentUser={session.user} settings={systemSettings} onSaveSettings={saveSystemSettings} onOpenEmployees={()=>openPage("users")}/>
   };
   return <div className="app-shell"><Sidebar page={page} setPage={openPage} open={menuOpen} setOpen={setMenuOpen} role={session.user.role} settings={systemSettings}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} tabs={openTabs} onSelectTab={setPage} onCloseTab={closePage} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/><div className="tab-pages">{openTabs.map(tab=><section key={tab} className="tab-page" hidden={page!==tab} aria-hidden={page!==tab}>{contentByTarget[pageTargets[tab]||tab]}</section>)}</div></main></div>;
