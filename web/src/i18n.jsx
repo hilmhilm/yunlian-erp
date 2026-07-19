@@ -117,6 +117,9 @@ Object.entries(invoiceMessages).forEach(([locale,entries])=>Object.assign(messag
 Object.assign(messages["zh-CN"],{invoiceExchangeRate:"发票汇率（MNB，1 外币兑 HUF）",invalidExchangeRate:"请填写有效的 MNB 汇率"});
 Object.assign(messages.en,{invoiceExchangeRate:"Invoice exchange rate (MNB, 1 foreign unit to HUF)",invalidExchangeRate:"Enter a valid MNB exchange rate"});
 Object.assign(messages.hu,{invoiceExchangeRate:"Számlaárfolyam (MNB, 1 deviza HUF-ban)",invalidExchangeRate:"Adjon meg érvényes MNB árfolyamot"});
+Object.assign(messages["zh-CN"],{salesListColumns:"销售单列表属性"});
+Object.assign(messages.en,{salesListColumns:"Sales-order list fields"});
+Object.assign(messages.hu,{salesListColumns:"Értékesítési lista mezői"});
 
 const LocaleContext = createContext(null);
 
