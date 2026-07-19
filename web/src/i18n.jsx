@@ -132,9 +132,9 @@ Object.assign(messages.hu,{
 Object.assign(messages["zh-CN"],{searchSalesForInvoice:"搜索销售单、客户或销售员",today:"今天",noSalesInDateRange:"这个日期范围内没有销售单"});
 Object.assign(messages.en,{searchSalesForInvoice:"Search sale, customer or salesperson",today:"Today",noSalesInDateRange:"No sales in this date range"});
 Object.assign(messages.hu,{searchSalesForInvoice:"Rendelés, vevő vagy értékesítő keresése",today:"Ma",noSalesInDateRange:"Nincs rendelés ebben az időszakban"});
-Object.assign(messages["zh-CN"],{stornoInvoiceHelp:"此操作会在 Számlázz.hu 生成作废发票，不会自动重开，也不会修改销售单、库存或收款。如果原发票已经更正，系统会先作废更正凭证，再作废原发票。"});
-Object.assign(messages.en,{stornoInvoiceHelp:"This creates storno documents in Számlázz.hu without reissuing or changing the sale, stock, or payments. For a corrected invoice, the correction is reversed first and then the original invoice."});
-Object.assign(messages.hu,{stornoInvoiceHelp:"A művelet sztornó bizonylatokat készít a Számlázz.hu-ban, de nem számláz újra és nem módosítja a rendelést, készletet vagy fizetést. Helyesbített számlánál előbb a helyesbítő, majd az eredeti számla kerül sztornózásra."});
+Object.assign(messages["zh-CN"],{invoiceType_cancellation:"作废更正凭证",stornoInvoiceHelp:"普通发票会生成作废发票；已更正发票不能直接作废，系统会自动生成归零更正凭证，使整条发票链合计为零。此操作不会自动重开，也不会修改销售单、库存或收款。"});
+Object.assign(messages.en,{invoiceType_cancellation:"Cancellation correction",stornoInvoiceHelp:"A regular invoice is reversed with a storno document. A corrected invoice cannot be reversed directly, so the system issues a zeroing correction that brings the complete invoice chain to zero. This does not reissue or change the sale, stock, or payments."});
+Object.assign(messages.hu,{invoiceType_cancellation:"Nullázó helyesbítés",stornoInvoiceHelp:"A normál számlához sztornó készül. A helyesbített számla közvetlenül nem sztornózható, ezért a rendszer nullázó helyesbítést állít ki, amely a teljes számlalánc összegét nullára hozza. Ez nem számláz újra és nem módosítja a rendelést, készletet vagy fizetést."});
 
 const LocaleContext = createContext(null);
 
