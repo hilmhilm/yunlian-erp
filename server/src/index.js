@@ -7,12 +7,14 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import pg from "pg";
 import { runMigrations } from "./migrate.js";
+import { createInvoiceXml, queryInvoicePdf, sendInvoiceXml } from "./szamlazz.js";
 
 const { Pool } = pg;
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const businessTimezone = process.env.BUSINESS_TIMEZONE || "Europe/Budapest";
 const uploadDirectory = process.env.UPLOAD_DIR || fileURLToPath(new URL("../uploads", import.meta.url));
+const invoiceDirectory = process.env.INVOICE_DIR || fileURLToPath(new URL("../invoices", import.meta.url));
 const secret = process.env.JWT_SECRET;
 if (!secret || secret.length < 32) throw new Error("JWT_SECRET must contain at least 32 characters");
 const pool = new Pool(process.env.DATABASE_URL ? { connectionString: process.env.DATABASE_URL } : {
@@ -74,6 +76,9 @@ const auth = async (req, res, next) => {
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const requireRole = (...allowed) => (req, res, next) => allowed.includes(req.user.role) ? next() : res.status(403).json({ error: "forbidden" });
 const getSystemSettings = async (client=pool) => (await client.query("select * from system_settings where id=true")).rows[0];
+const isoDatePattern=/^\d{4}-\d{2}-\d{2}$/;
+const validIsoDate=value=>isoDatePattern.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
+const invoiceRound=(value,currency)=>Number(Number(value).toFixed(currency==="HUF"?0:2));
 
 async function ensureAdminUser() {
   const username = process.env.ADMIN_USERNAME || "admin";
@@ -284,13 +289,22 @@ app.put("/api/products/:id/translations/:locale", requireRole("admin","purchasin
 
 app.get("/api/customers", requireRole("admin","sales","finance"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
-  const result=await pool.query("select * from customers where name ilike $1 or phone ilike $1 or city ilike $1 order by id desc limit 500",[q]);
+  const result=await pool.query("select * from customers where name ilike $1 or phone ilike $1 or city ilike $1 or tax_number ilike $1 order by id desc limit 500",[q]);
   res.json(result.rows);
 }));
 app.post("/api/customers", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
-  const b=req.body;
-  const result=await pool.query("insert into customers(name,phone,city,address,customer_group) values($1,$2,$3,$4,$5) returning *",[b.name,b.phone||"",b.city||"",b.address||"",b.group||"零售"]);
+  const b=req.body||{},name=String(b.name||"").trim();
+  if(!name)return res.status(400).json({error:"customer name is required"});
+  const result=await pool.query("insert into customers(name,phone,city,address,customer_group,country,postal_code,tax_number,email) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *",[name,String(b.phone||"").trim(),String(b.city||"").trim(),String(b.address||"").trim(),String(b.group||"零售").trim(),String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim()]);
   res.status(201).json(result.rows[0]);
+}));
+app.patch("/api/customers/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const b=req.body||{},current=(await pool.query("select * from customers where id=$1",[req.params.id])).rows[0];
+  if(!current)return res.status(404).json({error:"customer not found"});
+  const value=(camel,column,max=500)=>String(b[camel]??current[column]??"").trim().slice(0,max),name=value("name","name",200);
+  if(!name)return res.status(400).json({error:"customer name is required"});
+  const result=await pool.query("update customers set name=$1,phone=$2,city=$3,address=$4,customer_group=$5,country=$6,postal_code=$7,tax_number=$8,email=$9,updated_at=now() where id=$10 returning *",[name,value("phone","phone",100),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
+  res.json(result.rows[0]);
 }));
 
 app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id group by p.id order by p.created_at desc limit 500")).rows)));
@@ -329,16 +343,75 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
   const where=filters.length?` where ${filters.join(" and ")}`:"";
   const limit=filters.length?"":" limit 500";
-  const result=await pool.query(`select s.*,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
+  const result=await pool.query(`select s.*,c.name customer,i.id invoice_id,i.status invoice_status,i.invoice_number,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total from sales s left join customers c on c.id=s.customer_id left join invoices i on i.sale_id=s.id${where} order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email,i.id invoice_id,i.status invoice_status,i.invoice_number from sales s left join customers c on c.id=s.customer_id left join invoices i on i.sale_id=s.id where s.id=$1",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
-  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
+  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.unit,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   const payments=await pool.query("select id,amount,method,booked_on,category,note,created_by,created_at from sale_payments where sale_id=$1 order by created_at desc,id desc",[req.params.id]);
   const paidTotal=payments.rows.reduce((sum,payment)=>sum+Number(payment.amount),0);
   res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
+}));
+
+app.get("/api/invoices", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>{
+  const result=await pool.query("select i.*,s.order_no,c.name customer from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id order by i.created_at desc limit 500");
+  res.json(result.rows);
+}));
+
+app.get("/api/invoices/:id/pdf", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+  const invoice=(await pool.query("select invoice_number,pdf_path,status from invoices where id=$1",[req.params.id])).rows[0];
+  if(!invoice)return res.status(404).json({error:"invoice not found"});
+  if(invoice.status!=="issued"||!invoice.pdf_path)return res.status(409).json({error:"invoice PDF is not available"});
+  res.setHeader("Content-Type","application/pdf");
+  res.setHeader("Content-Disposition",`inline; filename="${String(invoice.invoice_number||"invoice").replace(/[^A-Za-z0-9._-]/g,"_")}.pdf"`);
+  res.sendFile(path.join(invoiceDirectory,path.basename(invoice.pdf_path)));
+}));
+
+app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+  const agentKey=String(process.env.SZAMLAZZ_AGENT_KEY||"").trim();
+  if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
+  const b=req.body||{},paymentMethod=String(b.paymentMethod||"cash"),fulfillmentDate=String(b.fulfillmentDate||""),dueDate=String(b.dueDate||""),priceFactor=Number(b.priceFactor??1),exchangeRateBank=String(b.exchangeRateBank||"MNB").trim().slice(0,100),exchangeRate=Number(b.exchangeRate);
+  if(!new Set(["cash","bank_transfer"]).has(paymentMethod)||!validIsoDate(fulfillmentDate)||!validIsoDate(dueDate)||dueDate<fulfillmentDate||!Number.isFinite(priceFactor)||priceFactor<=0||priceFactor>100)return res.status(400).json({error:"invalid invoice settings"});
+  const sale=(await pool.query("select s.*,c.name customer_name,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id])).rows[0];
+  if(!sale)return res.status(404).json({error:"sale not found"});
+  if(!sale.customer_id)return res.status(409).json({error:"select a customer before issuing an invoice"});
+  const customer={id:sale.customer_id,name:sale.customer_name,phone:sale.customer_phone,city:sale.customer_city,address:sale.customer_address,country:sale.customer_country,postal_code:sale.customer_postal_code,tax_number:sale.customer_tax_number,email:sale.customer_email};
+  if(!customer.name||!customer.postal_code||!customer.city||!customer.address)return res.status(409).json({error:"customer invoice name, postal code, city and address are required"});
+  if(!currencies.has(sale.currency))return res.status(409).json({error:"unsupported invoice currency"});
+  if(sale.currency!=="HUF"&&(!Number.isFinite(exchangeRate)||exchangeRate<=0||!exchangeRateBank))return res.status(400).json({error:"foreign-currency invoices require a positive exchange rate and bank"});
+  const rows=(await pool.query("select si.id sale_item_id,si.product_id,si.quantity,si.price,p.sku,p.name,p.unit from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id])).rows;
+  if(!rows.length||rows.some(item=>Number(item.quantity)<=0))return res.status(409).json({error:"only sales containing positive quantities can be invoiced"});
+  const customPrices=new Map((Array.isArray(b.items)?b.items:[]).map(item=>[Number(item.saleItemId),Number(item.netUnitPrice)]));
+  if([...customPrices].some(([id,price])=>!Number.isSafeInteger(id)||!Number.isFinite(price)||price<0))return res.status(400).json({error:"invalid custom invoice price"});
+  const items=rows.map(row=>{
+    const source=customPrices.has(Number(row.sale_item_id))?customPrices.get(Number(row.sale_item_id)):Number(row.price)*priceFactor;
+    const netUnitPrice=Number(source.toFixed(2)),netTotal=invoiceRound(Number(row.quantity)*netUnitPrice,sale.currency),vatTotal=invoiceRound(netTotal*.27,sale.currency),grossTotal=invoiceRound(netTotal+vatTotal,sale.currency);
+    return {...row,quantity:Number(row.quantity),netUnitPrice,netTotal,vatTotal,grossTotal};
+  });
+  const netTotal=invoiceRound(items.reduce((sum,item)=>sum+item.netTotal,0),sale.currency),vatTotal=invoiceRound(items.reduce((sum,item)=>sum+item.vatTotal,0),sale.currency),grossTotal=invoiceRound(items.reduce((sum,item)=>sum+item.grossTotal,0),sale.currency);
+  if(netTotal<=0)return res.status(409).json({error:"invoice total must be positive"});
+  const externalId=`yunlian-sale-${sale.id}`,existing=(await pool.query("select * from invoices where sale_id=$1",[sale.id])).rows[0];
+  if(existing?.status==="issued")return res.status(409).json({error:`invoice already issued: ${existing.invoice_number}`});
+  const activeProcessing=existing?.status==="processing"&&Date.now()-new Date(existing.updated_at).getTime()<2*60*1000;
+  if(activeProcessing)return res.status(409).json({error:"invoice creation is already in progress"});
+  const shouldRecover=Boolean(existing);
+  const values=[paymentMethod,fulfillmentDate,dueDate,sale.currency,sale.currency==="HUF"?null:exchangeRate,exchangeRateBank,priceFactor,netTotal,vatTotal,grossTotal];
+  const invoice=existing?(await pool.query("update invoices set status='processing',payment_method=$1,fulfillment_date=$2,due_date=$3,currency=$4,exchange_rate=$5,exchange_rate_bank=$6,price_factor=$7,net_total=$8,vat_total=$9,gross_total=$10,error_code='',error_message='',updated_at=now() where id=$11 returning *",[...values,existing.id])).rows[0]:(await pool.query("insert into invoices(sale_id,external_id,payment_method,fulfillment_date,due_date,currency,exchange_rate,exchange_rate_bank,price_factor,net_total,vat_total,gross_total,created_by) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *",[sale.id,externalId,...values,req.user.username])).rows[0];
+  try{
+    const xml=createInvoiceXml({agentKey,externalId,sale,customer,items,paymentMethod,fulfillmentDate,dueDate,exchangeRate,exchangeRateBank});
+    const issued=shouldRecover?(await queryInvoicePdf(agentKey,externalId)||await sendInvoiceXml(xml)):await sendInvoiceXml(xml),fileName=`invoice-${invoice.id}-${crypto.randomUUID()}.pdf`;
+    await writeFile(path.join(invoiceDirectory,fileName),issued.pdf,{flag:"wx"});
+    const client=await pool.connect();
+    try{
+      await client.query("begin");
+      await client.query("delete from invoice_items where invoice_id=$1",[invoice.id]);
+      for(const item of items)await client.query("insert into invoice_items(invoice_id,sale_item_id,product_id,sku,name,unit,quantity,net_unit_price,vat_rate,net_total,vat_total,gross_total) values($1,$2,$3,$4,$5,$6,$7,$8,27,$9,$10,$11)",[invoice.id,item.sale_item_id,item.product_id,item.sku,item.name,item.unit||"db",item.quantity,item.netUnitPrice,item.netTotal,item.vatTotal,item.grossTotal]);
+      const updated=await client.query("update invoices set status='issued',invoice_number=$1,pdf_path=$2,issued_at=now(),updated_at=now() where id=$3 returning *",[issued.invoiceNumber,fileName,invoice.id]);
+      await client.query("commit");res.status(201).json(updated.rows[0]);
+    }catch(error){await client.query("rollback");throw error}finally{client.release()}
+  }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"invoice creation failed").slice(0,2000),invoice.id]);throw error}
 }));
 
 app.get("/api/picking-sales", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
@@ -426,6 +499,8 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
     const settings=await getSystemSettings(client);
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    const invoice=await client.query("select 1 from invoices where sale_id=$1 limit 1",[req.params.id]);
+    if(invoice.rowCount){const error=new Error("sales with invoice records cannot be edited");error.status=409;throw error}
     const payments=await client.query("select 1 from sale_payments where sale_id=$1 limit 1",[req.params.id]);
     if(payments.rowCount){const error=new Error("sales with payment records cannot be edited");error.status=409;throw error}
     const returns=await client.query("select 1 from sale_returns where sale_id=$1 limit 1",[req.params.id]);
@@ -518,6 +593,7 @@ app.use((err,_req,res,_next)=>{console.error(err);if(err.code==="23505")return r
 
 async function start() {
   await mkdir(uploadDirectory,{recursive:true});
+  await mkdir(invoiceDirectory,{recursive:true});
   await runMigrations(pool);
   await ensureAdminUser();
   app.listen(port,"0.0.0.0",()=>console.log(`ERP API listening on ${port}`));

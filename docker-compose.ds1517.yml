@@ -42,8 +42,11 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Europe/Budapest}
       UPLOAD_DIR: /app/uploads
+      INVOICE_DIR: /app/invoices
+      SZAMLAZZ_AGENT_KEY: ${SZAMLAZZ_AGENT_KEY:-}
     volumes:
       - ./data/product-images:/app/uploads
+      - ./data/invoices:/app/invoices
     depends_on:
       db:
         condition: service_healthy

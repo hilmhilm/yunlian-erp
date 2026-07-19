@@ -13,6 +13,8 @@ chown -R 70:70 data/postgres
 chmod 700 data/postgres
 mkdir -p data/product-images
 chmod 755 data/product-images
+mkdir -p data/invoices
+chmod 750 data/invoices
 
 if command -v docker-compose >/dev/null 2>&1; then
   COMPOSE="docker-compose"

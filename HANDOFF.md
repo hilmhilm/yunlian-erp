@@ -144,3 +144,12 @@
 - “分类&标签”已改为独立“分类”页面。迁移 `013_product_categories.sql` 创建两级 `product_categories` 表并自动导入现有产品分类；分类支持分类名、分类名2、主/子层级和 JPG/PNG/WebP 图片。分类图片复用现有 `/uploads` 持久化目录，分类重命名会同步更新关联产品。
 - 产品与分类编辑窗口均可删除现有配图；`DELETE /api/products/:id/image` 和 `DELETE /api/categories/:id/image` 会先清空图片地址，再删除 `/uploads` 中对应的实际文件。
 - 产品页分类筛选改为主分类与子分类两个联动菜单；`GET /api/products` 使用 `categoryId` 查询，主分类 ID 同时覆盖其直接子分类。产品新增/编辑的分类字段为现有分类下拉菜单，不再接受自由文本。
+
+## 2026-07-18 Számlázz.hu 开票更新
+
+- UI 版本升级为 `2026.07.18-7`。发票列表和销售单“一键开发票”已经接入真实 API，不再是销售页占位入口。
+- 迁移 `015_szamlazz_invoices.sql` 增加客户国家、邮编、税号、邮箱字段，以及发票主表和发票明细快照；API 启动时自动执行。
+- 销售单价格视为不含税价，统一按 27% ÁFA 开电子发票，`sendEmail=false`。现金默认当天到期并标记已付，银行转账默认 8 天到期。
+- 开票窗口支持整单 `1`、`1/3`、`1/4` 等比例，以及逐行修改不含税单价。发票调整不回写销售单、不调整库存；存在发票记录的销售单禁止再编辑。
+- Agent Key 仅来自 NAS `.env` 的 `SZAMLAZZ_AGENT_KEY`。API 通过官方 multipart XML 接口开票，把 PDF 写入非公开的 `data/invoices`，再通过鉴权 API 提供打印和下载。
+- DS1517+ Compose 新增 `./data/invoices:/app/invoices`。升级需重建 `api` 和 `web`；API 重启后自动迁移，部署脚本自动创建发票目录。

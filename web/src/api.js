@@ -93,6 +93,10 @@ const formatDate = (value) => value ? new Date(value).toLocaleString([], {
 const normalizeCustomer = (customer) => ({
   ...customer,
   group: customer.customer_group ?? customer.group ?? "",
+  postalCode: customer.postal_code ?? customer.postalCode ?? "",
+  taxNumber: customer.tax_number ?? customer.taxNumber ?? "",
+  country: customer.country || "Magyarország",
+  email: customer.email || "",
 });
 
 const normalizePurchase = (purchase) => ({
@@ -124,11 +128,35 @@ const normalizeSale = (sale) => ({
   customerPhone: sale.customer_phone ?? sale.customerPhone ?? "",
   customerCity: sale.customer_city ?? sale.customerCity ?? "",
   customerAddress: sale.customer_address ?? sale.customerAddress ?? "",
+  customerCountry: sale.customer_country ?? sale.customerCountry ?? "Magyarország",
+  customerPostalCode: sale.customer_postal_code ?? sale.customerPostalCode ?? "",
+  customerTaxNumber: sale.customer_tax_number ?? sale.customerTaxNumber ?? "",
+  customerEmail: sale.customer_email ?? sale.customerEmail ?? "",
   paidTotal: Number(sale.paid_total ?? sale.paidTotal ?? 0),
   balance: Number(sale.balance ?? Math.max(Number(sale.total || 0)-Number(sale.paid_total ?? sale.paidTotal ?? 0),0)),
   stockDeducted: Boolean(sale.stock_deducted),
   delivered: Boolean(sale.delivered),
   settled: Boolean(sale.settled),
+  invoiceId: Number(sale.invoice_id ?? sale.invoiceId) || null,
+  invoiceStatus: sale.invoice_status ?? sale.invoiceStatus ?? "",
+  invoiceNumber: sale.invoice_number ?? sale.invoiceNumber ?? "",
+});
+
+const normalizeInvoice = invoice => ({
+  ...invoice,
+  saleId: Number(invoice.sale_id ?? invoice.saleId),
+  orderNo: invoice.order_no ?? invoice.orderNo ?? "",
+  invoiceNumber: invoice.invoice_number ?? invoice.invoiceNumber ?? "",
+  paymentMethod: invoice.payment_method ?? invoice.paymentMethod ?? "cash",
+  fulfillmentDate: invoice.fulfillment_date ?? invoice.fulfillmentDate ?? "",
+  dueDate: invoice.due_date ?? invoice.dueDate ?? "",
+  netTotal: Number(invoice.net_total ?? invoice.netTotal ?? 0),
+  vatTotal: Number(invoice.vat_total ?? invoice.vatTotal ?? 0),
+  grossTotal: Number(invoice.gross_total ?? invoice.grossTotal ?? 0),
+  priceFactor: Number(invoice.price_factor ?? invoice.priceFactor ?? 1),
+  errorMessage: invoice.error_message ?? invoice.errorMessage ?? "",
+  createdAt: invoice.created_at ?? invoice.createdAt ?? null,
+  issuedAt: invoice.issued_at ?? invoice.issuedAt ?? null,
 });
 
 const normalizeSaleDetail = (sale) => ({
@@ -264,6 +292,12 @@ export async function createCustomer(token, customer) {
   }));
 }
 
+export async function updateCustomer(token, id, customer) {
+  return normalizeCustomer(await request(`/customers/${id}`, {
+    token, method: "PATCH", body: JSON.stringify(customer),
+  }));
+}
+
 export async function fetchPurchases(token) {
   return (await request("/purchases", { token })).map(normalizePurchase);
 }
@@ -321,6 +355,22 @@ export async function createSalePayment(token, saleId, payment) {
   return request(`/sales/${saleId}/payments`, {
     token, method: "POST", body: JSON.stringify(payment),
   });
+}
+
+export async function fetchInvoices(token) {
+  return (await request("/invoices", { token })).map(normalizeInvoice);
+}
+
+export async function createInvoice(token, saleId, invoice) {
+  return normalizeInvoice(await request(`/sales/${saleId}/invoice`, {
+    token, method: "POST", body: JSON.stringify(invoice),
+  }));
+}
+
+export async function fetchInvoicePdf(token, invoiceId) {
+  const response=await fetch(`/api/invoices/${invoiceId}/pdf`,{headers:{Authorization:`Bearer ${token}`}});
+  if(!response.ok){const data=await response.json().catch(()=>({}));throw new ApiError(data.error||`Request failed (${response.status})`,response.status)}
+  return response.blob();
 }
 
 export async function fetchDashboard(token) {

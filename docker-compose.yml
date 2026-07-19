@@ -30,8 +30,11 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 中设置管理员密码}
       BUSINESS_TIMEZONE: ${BUSINESS_TIMEZONE:-Europe/Budapest}
       UPLOAD_DIR: /app/uploads
+      INVOICE_DIR: /app/invoices
+      SZAMLAZZ_AGENT_KEY: ${SZAMLAZZ_AGENT_KEY:-}
     volumes:
       - product_images:/app/uploads
+      - invoice_files:/app/invoices
     depends_on:
       db: { condition: service_healthy }
     networks: [erp-internal]
@@ -45,6 +48,7 @@ services:
 volumes:
   postgres_data:
   product_images:
+  invoice_files:
 networks:
   erp-internal:
     driver: bridge
