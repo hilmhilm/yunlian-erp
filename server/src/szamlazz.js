@@ -7,6 +7,17 @@ const escapeXml = value => String(value ?? "")
   .replaceAll('"', "&quot;")
   .replaceAll("'", "&apos;");
 
+const xmlDate = value => {
+  let date = "";
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    date = `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  } else {
+    date = String(value ?? "").slice(0, 10);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("Invoice date must use YYYY-MM-DD format");
+  return date;
+};
+
 const header = (response, name) => {
   const value = response.headers.get(name);
   if (!value) return "";
@@ -20,6 +31,8 @@ function itemXml(item) {
 export function createInvoiceXml({ agentKey, externalId, sale, customer, items, paymentMethod, fulfillmentDate, dueDate, exchangeRate, exchangeRateBank, correctedInvoiceNumber="", note="" }) {
   const foreignCurrency = sale.currency !== "HUF";
   const taxpayerType = customer.tax_number ? 1 : -1;
+  fulfillmentDate = xmlDate(fulfillmentDate);
+  dueDate = xmlDate(dueDate);
   return `<?xml version="1.0" encoding="UTF-8"?>
 <xmlszamla xmlns="http://www.szamlazz.hu/xmlszamla" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.szamlazz.hu/xmlszamla https://www.szamlazz.hu/szamla/docs/xsds/agent/xmlszamla.xsd"><beallitasok><szamlaagentkulcs>${escapeXml(agentKey)}</szamlaagentkulcs><eszamla>true</eszamla><szamlaLetoltes>true</szamlaLetoltes><valaszVerzio>1</valaszVerzio><szamlaKulsoAzon>${escapeXml(externalId)}</szamlaKulsoAzon></beallitasok><fejlec><teljesitesDatum>${fulfillmentDate}</teljesitesDatum><fizetesiHataridoDatum>${dueDate}</fizetesiHataridoDatum><fizmod>${paymentMethod === "cash" ? "Készpénz" : "Átutalás"}</fizmod><penznem>${sale.currency}</penznem><szamlaNyelve>hu</szamlaNyelve><megjegyzes>${escapeXml(note || `ERP销售单 / ERP rendelés: ${sale.order_no}`)}</megjegyzes>${foreignCurrency ? `<arfolyamBank>${escapeXml(exchangeRateBank)}</arfolyamBank><arfolyam>${exchangeRate}</arfolyam>` : ""}<rendelesSzam>${escapeXml(sale.order_no)}</rendelesSzam><elolegszamla>false</elolegszamla><vegszamla>false</vegszamla><helyesbitoszamla>${correctedInvoiceNumber ? "true" : "false"}</helyesbitoszamla><helyesbitettSzamlaszam>${escapeXml(correctedInvoiceNumber)}</helyesbitettSzamlaszam><dijbekero>false</dijbekero><fizetve>${paymentMethod === "cash" ? "true" : "false"}</fizetve></fejlec><elado></elado><vevo><nev>${escapeXml(customer.name)}</nev><orszag>${escapeXml(customer.country || "Magyarország")}</orszag><irsz>${escapeXml(customer.postal_code)}</irsz><telepules>${escapeXml(customer.city)}</telepules><cim>${escapeXml(customer.address)}</cim>${customer.email ? `<email>${escapeXml(customer.email)}</email>` : ""}<sendEmail>false</sendEmail><adoalany>${taxpayerType}</adoalany>${customer.tax_number ? `<adoszam>${escapeXml(customer.tax_number)}</adoszam>` : ""}<azonosito>yunlian-customer-${customer.id}</azonosito>${customer.phone ? `<telefonszam>${escapeXml(customer.phone)}</telefonszam>` : ""}</vevo><tetelek>${items.map(itemXml).join("")}</tetelek></xmlszamla>`;
 }
