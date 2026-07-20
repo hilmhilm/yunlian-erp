@@ -224,6 +224,38 @@ app.post("/api/categories", requireRole("admin","purchasing","warehouse"), async
   const result=await pool.query("insert into product_categories(parent_id,name,name2) values($1,$2,$3) returning *,0::int product_count",[parentId,name,name2]);
   res.status(201).json(result.rows[0]);
 }));
+app.post("/api/categories/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const source=Array.isArray(req.body?.categories)?req.body.categories:[];
+  if(!source.length||source.length>1000)return res.status(400).json({error:"category import must contain between 1 and 1000 rows"});
+  const rows=source.map((item,index)=>({row:index+2,mainName:String(item?.mainName||"").trim(),mainName2:String(item?.mainName2||"").trim(),childName:String(item?.childName||"").trim(),childName2:String(item?.childName2||"").trim()})),errors=[],mainDefinitions=new Map(),importedNames=new Map();
+  for(const row of rows){
+    if(!row.mainName){errors.push(`row ${row.row}: main category name is required`);continue}
+    const mainKey=row.mainName.toLocaleLowerCase(),knownMain=mainDefinitions.get(mainKey);
+    if(knownMain&&knownMain.name2!==row.mainName2)errors.push(`row ${row.row}: main category ${row.mainName} has inconsistent secondary names`);else if(!knownMain)mainDefinitions.set(mainKey,{name:row.mainName,name2:row.mainName2,row:row.row});
+    const knownName=importedNames.get(mainKey);if(knownName?.type==="child")errors.push(`rows ${knownName.row} and ${row.row}: duplicate category name ${row.mainName}`);else if(!knownName)importedNames.set(mainKey,{type:"main",row:row.row,name:row.mainName});
+    if(row.childName){const childKey=row.childName.toLocaleLowerCase(),known=importedNames.get(childKey);if(known)errors.push(`rows ${known.row} and ${row.row}: duplicate category name ${row.childName}`);else importedNames.set(childKey,{type:"child",row:row.row,name:row.childName})}
+  }
+  if(errors.length)return res.status(400).json({error:errors.slice(0,20).join("; ")});
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const existing=(await client.query("select id,parent_id,name from product_categories for update")).rows,existingByName=new Map(existing.map(category=>[category.name.toLocaleLowerCase(),category]));
+    for(const definition of mainDefinitions.values()){const category=existingByName.get(definition.name.toLocaleLowerCase());if(category?.parent_id!==null&&category?.parent_id!==undefined)errors.push(`row ${definition.row}: ${definition.name} already exists as a subcategory`)}
+    for(const row of rows){if(!row.childName)continue;const category=existingByName.get(row.childName.toLocaleLowerCase());if(category)errors.push(`row ${row.row}: category already exists (${row.childName})`)}
+    if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
+    const mainIds=new Map(),created=[];
+    for(const [key,definition] of mainDefinitions){
+      const current=existingByName.get(key);
+      if(current){mainIds.set(key,current.id);continue}
+      const result=await client.query("insert into product_categories(parent_id,name,name2) values(null,$1,$2) returning *",[definition.name,definition.name2]);
+      mainIds.set(key,result.rows[0].id);created.push(result.rows[0]);
+    }
+    for(const row of rows){if(!row.childName)continue;const result=await client.query("insert into product_categories(parent_id,name,name2) values($1,$2,$3) returning *",[mainIds.get(row.mainName.toLocaleLowerCase()),row.childName,row.childName2]);created.push(result.rows[0])}
+    if(!created.length){await client.query("rollback");return res.status(400).json({error:"category import contains no new categories"})}
+    await client.query("commit");
+    res.status(201).json({count:created.length,mainCount:created.filter(category=>category.parent_id===null).length,childCount:created.filter(category=>category.parent_id!==null).length});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
+}));
 app.patch("/api/categories/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{

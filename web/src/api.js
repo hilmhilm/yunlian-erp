@@ -236,6 +236,12 @@ export async function createCategory(token, category) {
   }));
 }
 
+export async function importCategories(token, categories) {
+  return request("/categories/import", {
+    token, method: "POST", body: JSON.stringify({ categories }),
+  });
+}
+
 export async function updateCategory(token, id, category) {
   return normalizeCategory(await request(`/categories/${id}`, {
     token, method: "PATCH", body: JSON.stringify(category),
