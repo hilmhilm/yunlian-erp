@@ -43,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.20-5";
+const uiVersion = "2026.07.20-6";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -276,7 +276,7 @@ function ProductImportModal({categories,onClose,onImport}) {
         if(!row.name)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productName")} ${t("required")}`);
         if(!Number.isSafeInteger(row.boxSize)||row.boxSize<=0)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidBoxSize")}`);
         if([row.cost,row.priceHuf,row.priceEur,row.priceUsd].some(value=>!Number.isFinite(value)||value<0))validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidPrice")}`);
-        if(!Number.isSafeInteger(row.stock)||row.stock<0)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidStock")}`);
+        if(!Number.isSafeInteger(row.stock))validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidStock")}`);
         parsed.push(row);
       });
       if(!parsed.length)validation.push(t("productImportEmpty"));
