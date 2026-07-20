@@ -266,6 +266,15 @@ export async function createProduct(token, product) {
   return normalizeProduct(created);
 }
 
+export async function importProducts(token, products) {
+  const result = await request("/products/import", {
+    token,
+    method: "POST",
+    body: JSON.stringify({ products }),
+  });
+  return { ...result, products: (result.products || []).map(normalizeProduct) };
+}
+
 export async function fetchProduct(token, id) {
   return normalizeProduct(await request(`/products/${id}`, { token }));
 }

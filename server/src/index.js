@@ -276,6 +276,45 @@ app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
   const result=await pool.query("select name from product_categories order by lower(name)");
   res.json(result.rows.map(row=>row.name));
 }));
+app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+  const source=Array.isArray(req.body?.products)?req.body.products:[];
+  if(!source.length||source.length>1000)return res.status(400).json({error:"product import must contain between 1 and 1000 rows"});
+  const products=source.map((item,index)=>({
+    row:index+2,sku:String(item?.sku||"").trim(),barcode:String(item?.barcode||"").trim(),name:String(item?.name||"").trim(),name2:String(item?.name2||"").trim(),category:String(item?.category||"").trim(),supplier:String(item?.supplier||"").trim(),unit:String(item?.unit||"个").trim()||"个",
+    boxSize:Number(item?.boxSize??1),cost:Number(item?.cost??0),priceHuf:Number(item?.priceHuf??0),priceEur:Number(item?.priceEur??0),priceUsd:Number(item?.priceUsd??0),
+  }));
+  const errors=[];
+  for(const product of products){
+    if(!product.sku)errors.push(`row ${product.row}: SKU is required`);
+    if(!product.name)errors.push(`row ${product.row}: product name is required`);
+    if(!Number.isSafeInteger(product.boxSize)||product.boxSize<=0)errors.push(`row ${product.row}: box size must be a positive integer`);
+    if([product.cost,product.priceHuf,product.priceEur,product.priceUsd].some(value=>!Number.isFinite(value)||value<0))errors.push(`row ${product.row}: prices and cost must be non-negative numbers`);
+  }
+  const duplicateRows=(field,label)=>{
+    const seen=new Map();
+    for(const product of products){const value=product[field];if(!value)continue;const key=value.toLocaleLowerCase();if(seen.has(key))errors.push(`rows ${seen.get(key)} and ${product.row}: duplicate ${label} ${value}`);else seen.set(key,product.row)}
+  };
+  duplicateRows("sku","SKU");duplicateRows("barcode","barcode");
+  if(errors.length)return res.status(400).json({error:errors.slice(0,20).join("; ")});
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const categories=(await client.query("select name from product_categories")).rows,categoryMap=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row.name]));
+    for(const product of products){if(product.category&&!categoryMap.has(product.category.toLocaleLowerCase()))errors.push(`row ${product.row}: category does not exist (${product.category})`);else if(product.category)product.category=categoryMap.get(product.category.toLocaleLowerCase())}
+    const skus=products.map(product=>product.sku),barcodes=products.map(product=>product.barcode).filter(Boolean);
+    const existing=await client.query("select sku,barcode from products where lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[]))",[skus.map(value=>value.toLocaleLowerCase()),barcodes.map(value=>value.toLocaleLowerCase())]);
+    const existingSkus=new Set(existing.rows.map(row=>String(row.sku).toLocaleLowerCase())),existingBarcodes=new Set(existing.rows.map(row=>String(row.barcode||"").toLocaleLowerCase()).filter(Boolean));
+    for(const product of products){if(existingSkus.has(product.sku.toLocaleLowerCase()))errors.push(`row ${product.row}: SKU already exists (${product.sku})`);if(product.barcode&&existingBarcodes.has(product.barcode.toLocaleLowerCase()))errors.push(`row ${product.row}: barcode already exists (${product.barcode})`)}
+    if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
+    const created=[];
+    for(const product of products){
+      const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd]);
+      created.push({...result.rows[0],sales_quantity:0,purchase_quantity:0});
+    }
+    await client.query("commit");
+    res.status(201).json({count:created.length,products:created});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
+}));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{
   const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.id=$1",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});

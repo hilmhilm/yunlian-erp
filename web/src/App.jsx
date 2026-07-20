@@ -3,14 +3,14 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Ban, FilePenLine, RotateCcw, ScrollText,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Upload, Ban, FilePenLine, RotateCcw, ScrollText,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest, createInvoice as createInvoiceRequest, deleteCategoryImage as deleteCategoryImageRequest, deleteProductImage as deleteProductImageRequest,
   createCategory as createCategoryRequest, createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
   createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCategories, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchPickingSale, fetchPickingSales, fetchProduct, fetchProducts, fetchSale,
-  correctInvoice as correctInvoiceRequest, fetchAuditLogs, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchPurchases, fetchReportSummary, fetchSales, fetchSettings, fetchUsers, getStoredSession, stornoInvoice as stornoInvoiceRequest,
+  correctInvoice as correctInvoiceRequest, fetchAuditLogs, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchPurchases, fetchReportSummary, fetchSales, fetchSettings, fetchUsers, getStoredSession, importProducts as importProductsRequest, stornoInvoice as stornoInvoiceRequest,
   login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateCustomer as updateCustomerRequest, updateProduct as updateProductRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleStatus as updateSaleStatusRequest, updateSettings as updateSettingsRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
@@ -43,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.20-2";
+const uiVersion = "2026.07.20-3";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -216,9 +216,82 @@ function CategoriesPage({categories,onCreate,onUpdate,onUploadImage,onDeleteImag
   return <Page><section className="category-page"><div className="panel-heading category-heading"><div><h2>{t("categoryManagement")}</h2><span>{roots.length} {t("mainCategories")} · {categories.length-roots.length} {t("subcategories")}</span></div>{canManage&&<button className="primary" onClick={()=>{setEditor(null);setParent(null);setModalOpen(true)}} disabled={loading}><Plus size={16}/>{t("newMainCategory")}</button>}</div>{(error||loadError)&&<div className="form-error page-error">{error||loadError}</div>}{loading&&!categories.length&&<div className="empty">{t("loading")}</div>}<div className="category-tree">{roots.map(root=><section className="category-group" key={root.id}>{card(root)}<div className="subcategory-list">{childrenOf(root.id).map(child=>card(child,true))}</div></section>)}</div>{!loading&&!roots.length&&<div className="empty">{t("noCategories")}</div>}</section>{modalOpen&&<CategoryModal category={editor} parent={parent} onClose={closeModal} onSave={save} onDeleteImage={onDeleteImage}/>}</Page>;
 }
 
-function Products({ products, categories=[], onCreate, onUpdate, onUploadImage, onDeleteImage, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true, canUpload=false, lowStockThreshold=20 }) {
+const productSpreadsheetFields=[
+  {key:"sku",label:"productSku",required:true,aliases:["sku","货号","貨號","cikkszám"]},
+  {key:"barcode",label:"productBarcode",aliases:["barcode","条码","條碼","vonalkód"]},
+  {key:"name",label:"productName",required:true,aliases:["name","product name","产品名称","產品名稱","terméknév"]},
+  {key:"name2",label:"productName2",aliases:["name2","product name 2","产品名2","產品名2","második terméknév"]},
+  {key:"category",label:"productCategory",aliases:["category","分类","分類","kategória"]},
+  {key:"supplier",label:"supplier",aliases:["supplier","供货商","供貨商","beszállító"]},
+  {key:"unit",label:"productUnit",aliases:["unit","单位","單位","egység"]},
+  {key:"boxSize",label:"productBoxSize",numeric:true,aliases:["boxsize","units per box","箱装数","箱裝數","darab dobozonként"]},
+  {key:"cost",label:"productCost",numeric:true,aliases:["cost","purchase cost","采购成本","採購成本","beszerzési költség"]},
+  {key:"priceHuf",label:"priceHuf",numeric:true,aliases:["pricehuf","huf price","福林售价","huf ár"]},
+  {key:"priceEur",label:"priceEur",numeric:true,aliases:["priceeur","eur price","欧元售价","eur ár"]},
+  {key:"priceUsd",label:"priceUsd",numeric:true,aliases:["priceusd","usd price","美元售价","usd ár"]},
+];
+const normalizedSpreadsheetHeader=value=>String(value??"").trim().toLocaleLowerCase().replace(/[\s_\-\/()（）]+/g,"");
+const loadExcelJs=async()=>{const module=await import("exceljs");return module.default||module};
+const spreadsheetCellValue=value=>{if(value&&typeof value==="object"&&!(value instanceof Date)){if("result" in value)return value.result??"";if("text" in value)return value.text??"";if(Array.isArray(value.richText))return value.richText.map(part=>part.text||"").join("")}return value??""};
+const formatProductWorksheet=(sheet,widths)=>{sheet.views=[{state:"frozen",ySplit:1}];sheet.columns=widths.map(width=>({width}));const header=sheet.getRow(1);header.height=24;header.font={bold:true,color:{argb:"FFFFFFFF"}};header.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF258DCA"}};header.alignment={vertical:"middle"};sheet.autoFilter={from:{row:1,column:1},to:{row:Math.max(1,sheet.rowCount),column:widths.length}}};
+const downloadWorkbook=async(workbook,fileName)=>{const buffer=await workbook.xlsx.writeBuffer(),url=URL.createObjectURL(new Blob([buffer],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"})),link=document.createElement("a");link.href=url;link.download=fileName;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)};
+
+function ProductImportModal({categories,onClose,onImport}) {
+  const {t}=useI18n();
+  const [fileName,setFileName]=useState(""),[rows,setRows]=useState([]),[errors,setErrors]=useState([]),[busy,setBusy]=useState(false),[serverError,setServerError]=useState("");
+  const downloadTemplate=async()=>{
+    const ExcelJS=await loadExcelJs();
+    const headers=productSpreadsheetFields.map(field=>t(field.label));
+    const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("products"));sheet.addRow(headers);formatProductWorksheet(sheet,[14,16,24,24,16,18,10,12,14,14,14,14]);
+    const notes=workbook.addWorksheet(t("instructions"));[t("productImportInstructions"),t("productImportRequiredFields"),t("productImportTextFieldTip"),t("productImportCategoryTip"),t("productImportStockTip")].forEach(note=>notes.addRow([note]));notes.getColumn(1).width=88;notes.getColumn(1).alignment={wrapText:true,vertical:"top"};notes.getRow(1).font={bold:true,color:{argb:"FF258DCA"}};
+    await downloadWorkbook(workbook,`product-import-template-${localDateValue()}.xlsx`);
+  };
+  const chooseFile=async event=>{
+    const file=event.target.files?.[0];event.target.value="";if(!file)return;
+    setBusy(true);setServerError("");setErrors([]);setRows([]);setFileName(file.name);
+    try{
+      const ExcelJS=await loadExcelJs(),workbook=new ExcelJS.Workbook();await workbook.xlsx.load(await file.arrayBuffer());
+      const sheet=workbook.worksheets[0],matrix=[];if(sheet)for(let rowNumber=1;rowNumber<=sheet.rowCount;rowNumber++)matrix.push(sheet.getRow(rowNumber).values.slice(1).map(spreadsheetCellValue));
+      if(!matrix.length)throw new Error(t("productImportEmpty"));
+      const headerMap=new Map();
+      matrix[0].forEach((header,index)=>headerMap.set(normalizedSpreadsheetHeader(header),index));
+      const indexes={};
+      for(const field of productSpreadsheetFields){
+        const aliases=[field.key,t(field.label),...field.aliases].map(normalizedSpreadsheetHeader),index=aliases.map(alias=>headerMap.get(alias)).find(value=>value!==undefined);
+        if(index!==undefined)indexes[field.key]=index;
+      }
+      const missing=productSpreadsheetFields.filter(field=>field.required&&indexes[field.key]===undefined);
+      if(missing.length)throw new Error(`${t("productImportMissingColumns")}：${missing.map(field=>t(field.label)).join("、")}`);
+      const parsed=[],validation=[];
+      matrix.slice(1).forEach((source,rowIndex)=>{
+        if(source.every(value=>String(value??"").trim()===""))return;
+        const row={};
+        for(const field of productSpreadsheetFields){const value=indexes[field.key]===undefined?"":source[indexes[field.key]];row[field.key]=field.numeric?Number(value===""?(field.key==="boxSize"?1:0):value):String(value??"").trim()}
+        row.sourceRow=rowIndex+2;
+        if(!row.sku)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productSku")} ${t("required")}`);
+        if(!row.name)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productName")} ${t("required")}`);
+        if(!Number.isSafeInteger(row.boxSize)||row.boxSize<=0)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidBoxSize")}`);
+        if([row.cost,row.priceHuf,row.priceEur,row.priceUsd].some(value=>!Number.isFinite(value)||value<0))validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidPrice")}`);
+        parsed.push(row);
+      });
+      if(!parsed.length)validation.push(t("productImportEmpty"));
+      if(parsed.length>1000)validation.push(t("productImportTooManyRows"));
+      const categoryNames=new Set(categories.map(category=>category.name.toLocaleLowerCase()));
+      parsed.forEach(row=>{if(row.category&&!categoryNames.has(row.category.toLocaleLowerCase()))validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportUnknownCategory")} ${row.category}`)});
+      for(const [key,label] of [["sku","productSku"],["barcode","productBarcode"]]){const seen=new Map();parsed.forEach(row=>{const value=row[key].toLocaleLowerCase();if(!value)return;if(seen.has(value))validation.push(`${t("rowNumber")} ${seen.get(value)}、${row.sourceRow}：${t("productImportDuplicate")} ${t(label)} ${row[key]}`);else seen.set(value,row.sourceRow)})}
+      setRows(parsed);setErrors(validation.slice(0,30));
+    }catch(error){setErrors([error.message||t("productImportReadFailed")])}finally{setBusy(false)}
+  };
+  const submit=async()=>{if(!rows.length||errors.length)return;setBusy(true);setServerError("");try{await onImport(rows.map(({sourceRow,...row})=>row));onClose()}catch(error){setServerError(error.message)}finally{setBusy(false)}};
+  return <Modal title={t("importProducts")} onClose={onClose} wide>
+    <div className="product-import-panel"><div className="product-import-actions"><label className="outline file-button"><Upload size={16}/>{t("selectExcelFile")}<input type="file" accept=".xlsx" onChange={chooseFile} disabled={busy}/></label><button type="button" className="outline" onClick={downloadTemplate}><Download size={16}/>{t("downloadImportTemplate")}</button><span>{fileName||t("noFileSelected")}</span></div><p>{t("productImportHelp")}</p>{busy&&<div className="empty">{t("loading")}</div>}{errors.length>0&&<div className="product-import-errors"><b>{t("productImportValidationFailed")}</b>{errors.map((error,index)=><span key={`${error}-${index}`}>{error}</span>)}</div>}{serverError&&<div className="form-error">{serverError}</div>}{rows.length>0&&<div className="table-wrap product-import-preview"><table><thead><tr><th>{t("rowNumber")}</th><th>{t("productSku")}</th><th>{t("productBarcode")}</th><th>{t("productName")}</th><th>{t("productCategory")}</th><th>{t("priceHuf")}</th></tr></thead><tbody>{rows.slice(0,10).map(row=><tr key={row.sourceRow}><td>{row.sourceRow}</td><td>{row.sku}</td><td>{row.barcode||"—"}</td><td>{row.name}</td><td>{row.category||"—"}</td><td>{row.priceHuf}</td></tr>)}</tbody></table>{rows.length>10&&<div className="product-import-more">{t("productImportMoreRows").replace("{count}",rows.length-10)}</div>}</div>}<div className="product-import-summary">{rows.length>0&&<span>{t("productImportReady").replace("{count}",rows.length)}</span>}</div></div>
+    <div className="modal-actions"><button className="outline" onClick={onClose} disabled={busy}>{t("cancel")}</button><button className="primary" onClick={submit} disabled={busy||!rows.length||errors.length>0}>{busy?t("saving"):t("confirmImportProducts")}</button></div>
+  </Modal>;
+}
+
+function Products({ products, categories=[], onCreate, onUpdate, onImport, onUploadImage, onDeleteImage, onLoad, onLoadDetail, loading=false, error="", inventoryOnly=false, canCreate=true, canEdit=true, canUpload=false, lowStockThreshold=20 }) {
   const { t } = useI18n();
-  const [search,setSearch]=useState(""),[mainCategoryId,setMainCategoryId]=useState(""),[subCategoryId,setSubCategoryId]=useState(""),[editor,setEditor]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(""),[imageError,setImageError]=useState(""),[visibleColumns,setVisibleColumns]=useState(()=>{try{const saved=JSON.parse(localStorage.getItem(productColumnStorageKey)||"null");return Array.isArray(saved)&&saved.length?saved:defaultProductColumns}catch{return defaultProductColumns}});
+  const [search,setSearch]=useState(""),[mainCategoryId,setMainCategoryId]=useState(""),[subCategoryId,setSubCategoryId]=useState(""),[editor,setEditor]=useState(null),[detail,setDetail]=useState(null),[detailLoading,setDetailLoading]=useState(false),[detailError,setDetailError]=useState(""),[imageError,setImageError]=useState(""),[importOpen,setImportOpen]=useState(false),[importMessage,setImportMessage]=useState(""),[visibleColumns,setVisibleColumns]=useState(()=>{try{const saved=JSON.parse(localStorage.getItem(productColumnStorageKey)||"null");return Array.isArray(saved)&&saved.length?saved:defaultProductColumns}catch{return defaultProductColumns}});
   const mainCategories=categories.filter(category=>!category.parentId),subcategories=categories.filter(category=>Number(category.parentId)===Number(mainCategoryId)),selectedCategoryId=subCategoryId||mainCategoryId,selectedCategoryNames=selectedCategoryId?(subCategoryId?subcategories.filter(category=>String(category.id)===String(subCategoryId)).map(category=>category.name):[...mainCategories.filter(category=>String(category.id)===String(mainCategoryId)),...subcategories].map(category=>category.name)):[];
   const filtered=products.filter(p=>(!selectedCategoryNames.length||selectedCategoryNames.includes(p.category))&&`${p.sku}${p.barcode}${p.name}${p.name2}${p.category}`.toLowerCase().includes(search.toLowerCase()));
   const save=async(data)=>{if(editor?.id)await onUpdate(editor.id,data);else await onCreate(data);setEditor(null)};
@@ -232,9 +305,16 @@ function Products({ products, categories=[], onCreate, onUpdate, onUploadImage, 
   const columns=inventoryOnly?[
     {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
   ]:productColumnOptions.filter(option=>selectedColumns.includes(option.key));
-  const columnSelector=!inventoryOnly?<ProductColumnSelector options={productColumnOptions} selected={selectedColumns} onToggle={toggleColumn} onReset={()=>setVisibleColumns(defaultProductColumns)}/>:null;
+  const exportProducts=async()=>{
+    const ExcelJS=await loadExcelJs();
+    const headers=productSpreadsheetFields.map(field=>t(field.label)),extraHeaders=[t("inventoryStatistics"),t("inboundStatistics"),t("salesStatistics"),t("createdAt")];
+    const data=filtered.map(product=>[...productSpreadsheetFields.map(field=>product[field.key]??""),product.stock,product.purchaseQuantity,product.salesQuantity,product.createdAt?new Date(product.createdAt):""]);
+    const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("products"));sheet.addRow([...headers,...extraHeaders]);data.forEach(row=>sheet.addRow(row));formatProductWorksheet(sheet,[14,16,24,24,16,18,10,12,14,14,14,14,12,14,14,20]);sheet.getColumn(16).numFmt="yyyy-mm-dd hh:mm";await downloadWorkbook(workbook,`products-${localDateValue()}.xlsx`);
+  };
+  const importRows=async rows=>{const result=await onImport(rows);setImportMessage(t("productImportSuccess").replace("{count}",result.count));return result};
+  const columnSelector=!inventoryOnly?<><button type="button" className="outline" onClick={()=>setImportOpen(true)} disabled={!canCreate}><Upload size={16}/>{t("importProducts")}</button><button type="button" className="outline" onClick={exportProducts}><Download size={16}/>{t("exportExcel")}</button><ProductColumnSelector options={productColumnOptions} selected={selectedColumns} onToggle={toggleColumn} onReset={()=>setVisibleColumns(defaultProductColumns)}/></>:null;
   const categoryFilter=!inventoryOnly?<div className="category-filter"><select aria-label={t("mainCategory")} value={mainCategoryId} onChange={event=>{setMainCategoryId(event.target.value);setSubCategoryId("")}}><option value="">{t("allMainCategories")}</option>{mainCategories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select><select aria-label={t("subcategory")} value={subCategoryId} disabled={!mainCategoryId||!subcategories.length} onChange={event=>setSubCategoryId(event.target.value)}><option value="">{t("allSubcategories")}</option>{subcategories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></div>:undefined;
-  return <Page><Toolbar search={search} setSearch={setSearch} filter={categoryFilter} onAdd={canCreate?()=>setEditor({}):undefined} onSearch={()=>onLoad(search,selectedCategoryId)} onRefresh={()=>{setSearch("");setMainCategoryId("");setSubCategoryId("");onLoad("","")}} busy={loading} actions={columnSelector}/>{(imageError||error)&&<div className="form-error page-error">{imageError||<>{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search,selectedCategoryId)}>{t("retry")}</button></>}</div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable className="product-list-table" columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="imageUrl"?<ProductImageCell product={r} onUpload={uploadImage} canUpload={canUpload}/>:c.key==="cost"?money(r.cost,"EUR"):c.key==="priceHuf"?money(r.priceHuf,"HUF"):c.key==="priceEur"?money(r.priceEur,"EUR"):c.key==="priceUsd"?money(r.priceUsd,"USD"):c.key==="purchaseQuantity"?<b>{r.purchaseQuantity}</b>:c.key==="salesQuantity"?<b>{r.salesQuantity}</b>:c.key==="stock"?<b className={r.stock<=lowStockThreshold?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="createdAt"?(r.createdAt?new Date(r.createdAt).toLocaleString():"—"):c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]} onEdit={canEdit&&!inventoryOnly?setEditor:undefined} onDetail={openDetail}/>{editor&&<ProductModal product={editor.id?editor:null} categories={categories} onClose={()=>setEditor(null)} onSave={save} onDeleteImage={onDeleteImage}/>} {detail&&<ProductDetailModal product={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} filter={categoryFilter} onAdd={canCreate?()=>setEditor({}):undefined} onSearch={()=>onLoad(search,selectedCategoryId)} onRefresh={()=>{setSearch("");setMainCategoryId("");setSubCategoryId("");setImportMessage("");onLoad("","")}} busy={loading} actions={columnSelector}/>{importMessage&&<div className="success-message page-message"><Check size={16}/>{importMessage}</div>}{(imageError||error)&&<div className="form-error page-error">{imageError||<>{t("productsLoadFailed")}：{error} <button className="outline" onClick={()=>onLoad(search,selectedCategoryId)}>{t("retry")}</button></>}</div>}{loading&&<div className="empty">{t("loadingProducts")}</div>}<div className="filter-strip"><span>全部</span><span className="selected">仅显示有库存</span><span>仅显示零库存</span></div><DataTable className="product-list-table" columns={columns} rows={filtered} renderCell={(r,c)=>c.key==="imageUrl"?<ProductImageCell product={r} onUpload={uploadImage} canUpload={canUpload}/>:c.key==="cost"?money(r.cost,"EUR"):c.key==="priceHuf"?money(r.priceHuf,"HUF"):c.key==="priceEur"?money(r.priceEur,"EUR"):c.key==="priceUsd"?money(r.priceUsd,"USD"):c.key==="purchaseQuantity"?<b>{r.purchaseQuantity}</b>:c.key==="salesQuantity"?<b>{r.salesQuantity}</b>:c.key==="stock"?<b className={r.stock<=lowStockThreshold?"stock-low":"stock-ok"}>{r.stock}</b>:c.key==="createdAt"?(r.createdAt?new Date(r.createdAt).toLocaleString():"—"):c.key==="box"?(r.stock/r.boxSize).toFixed(1):r[c.key]} onEdit={canEdit&&!inventoryOnly?setEditor:undefined} onDetail={openDetail}/>{editor&&<ProductModal product={editor.id?editor:null} categories={categories} onClose={()=>setEditor(null)} onSave={save} onDeleteImage={onDeleteImage}/>} {detail&&<ProductDetailModal product={detail} loading={detailLoading} error={detailError} onClose={()=>setDetail(null)}/>} {importOpen&&<ProductImportModal categories={categories} onClose={()=>setImportOpen(false)} onImport={importRows}/>}</Page>;
 }
 
 const productFields=[
@@ -658,6 +738,7 @@ export function App() {
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
   const syncCategories=async()=>{const next=await fetchCategories(session.token);setCategoryRecords(next);return next};
   const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [,nextDashboard,nextReport]=await Promise.all([syncCategories(),fetchDashboard(session.token),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
+  const importProducts=async rows=>{const result=await importProductsRequest(session.token,rows);const [nextProducts,nextDashboard,nextReport]=await Promise.all([fetchProducts(session.token),fetchDashboard(session.token),refreshReport()]);setProducts(nextProducts);setDashboardSummary(nextDashboard);setReportSummary(nextReport);return result};
   const changeProduct=async(id,product)=>{const updated=await updateProductRequest(session.token,id,product);setProducts(current=>current.map(item=>item.id===updated.id?updated:item));await syncCategories();return updated};
   const addCategory=async category=>{await createCategoryRequest(session.token,category);await syncCategories()};
   const changeCategory=async(id,category)=>{await updateCategoryRequest(session.token,id,category);const next=await syncCategories();setProducts(await fetchProducts(session.token));return next.find(item=>Number(item.id)===Number(id))};
@@ -691,7 +772,7 @@ export function App() {
   if(!session?.user)return <Login onLogin={login}/>;
   const contentByTarget={
     dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={openPage} lowStockThreshold={systemSettings.lowStockThreshold}/>,
-    products:<Products products={products} categories={categoryRecords} onCreate={addProduct} onUpdate={changeProduct} onUploadImage={uploadProductImage} onDeleteImage={removeProductImage} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)} canUpload={["admin","purchasing","warehouse","sales"].includes(session.user.role)} lowStockThreshold={systemSettings.lowStockThreshold}/>,
+    products:<Products products={products} categories={categoryRecords} onCreate={addProduct} onUpdate={changeProduct} onImport={importProducts} onUploadImage={uploadProductImage} onDeleteImage={removeProductImage} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={["admin","purchasing","warehouse"].includes(session.user.role)} canUpload={["admin","purchasing","warehouse","sales"].includes(session.user.role)} lowStockThreshold={systemSettings.lowStockThreshold}/>,
     categories:<CategoriesPage categories={categoryRecords} onCreate={addCategory} onUpdate={changeCategory} onUploadImage={uploadCategoryImage} onDeleteImage={removeCategoryImage} canManage={["admin","purchasing","warehouse"].includes(session.user.role)} loading={dataLoading} error={dataError}/>,
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} defaultWarehouse={systemSettings.defaultWarehouse} canCreate={["admin","purchasing","warehouse"].includes(session.user.role)}/>,
     inventory:<Products products={products} onCreate={addProduct} onUpdate={changeProduct} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} lowStockThreshold={systemSettings.lowStockThreshold} inventoryOnly canCreate={["admin","purchasing","warehouse"].includes(session.user.role)} canEdit={false}/>,
