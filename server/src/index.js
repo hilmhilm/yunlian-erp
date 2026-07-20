@@ -281,7 +281,7 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
   if(!source.length||source.length>1000)return res.status(400).json({error:"product import must contain between 1 and 1000 rows"});
   const products=source.map((item,index)=>({
     row:index+2,sku:String(item?.sku||"").trim(),barcode:String(item?.barcode||"").trim(),name:String(item?.name||"").trim(),name2:String(item?.name2||"").trim(),category:String(item?.category||"").trim(),supplier:String(item?.supplier||"").trim(),unit:String(item?.unit||"个").trim()||"个",
-    boxSize:Number(item?.boxSize??1),cost:Number(item?.cost??0),priceHuf:Number(item?.priceHuf??0),priceEur:Number(item?.priceEur??0),priceUsd:Number(item?.priceUsd??0),
+    boxSize:Number(item?.boxSize??1),cost:Number(item?.cost??0),priceHuf:Number(item?.priceHuf??0),priceEur:Number(item?.priceEur??0),priceUsd:Number(item?.priceUsd??0),stock:Number(item?.stock??0),
   }));
   const errors=[];
   for(const product of products){
@@ -289,6 +289,7 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
     if(!product.name)errors.push(`row ${product.row}: product name is required`);
     if(!Number.isSafeInteger(product.boxSize)||product.boxSize<=0)errors.push(`row ${product.row}: box size must be a positive integer`);
     if([product.cost,product.priceHuf,product.priceEur,product.priceUsd].some(value=>!Number.isFinite(value)||value<0))errors.push(`row ${product.row}: prices and cost must be non-negative numbers`);
+    if(!Number.isSafeInteger(product.stock)||product.stock<0)errors.push(`row ${product.row}: stock must be a non-negative integer`);
   }
   const duplicateRows=(field,label)=>{
     const seen=new Map();
@@ -306,13 +307,14 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
     const existingSkus=new Set(existing.rows.map(row=>String(row.sku).toLocaleLowerCase())),existingBarcodes=new Set(existing.rows.map(row=>String(row.barcode||"").toLocaleLowerCase()).filter(Boolean));
     for(const product of products){if(existingSkus.has(product.sku.toLocaleLowerCase()))errors.push(`row ${product.row}: SKU already exists (${product.sku})`);if(product.barcode&&existingBarcodes.has(product.barcode.toLocaleLowerCase()))errors.push(`row ${product.row}: barcode already exists (${product.barcode})`)}
     if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
-    const created=[];
+    const settings=await getSystemSettings(client),created=[],importReference=`PRODUCT-IMPORT-${new Date().toISOString().replace(/\D/g,"").slice(0,14)}-${crypto.randomUUID().slice(0,8)}`;
     for(const product of products){
-      const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd]);
+      const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd,product.stock]);
+      if(product.stock>0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'product_import',$4,$5)",[result.rows[0].id,settings.default_warehouse,product.stock,importReference,req.user.username]);
       created.push({...result.rows[0],sales_quantity:0,purchase_quantity:0});
     }
     await client.query("commit");
-    res.status(201).json({count:created.length,products:created});
+    res.status(201).json({count:created.length,stockTotal:products.reduce((total,product)=>total+product.stock,0),products:created});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{

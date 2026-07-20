@@ -43,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.20-4";
+const uiVersion = "2026.07.20-5";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -229,6 +229,7 @@ const productSpreadsheetFields=[
   {key:"priceHuf",label:"priceHuf",numeric:true,aliases:["pricehuf","huf price","福林售价","huf ár"]},
   {key:"priceEur",label:"priceEur",numeric:true,aliases:["priceeur","eur price","欧元售价","eur ár"]},
   {key:"priceUsd",label:"priceUsd",numeric:true,aliases:["priceusd","usd price","美元售价","usd ár"]},
+  {key:"stock",label:"currentStock",numeric:true,aliases:["stock","initial stock","opening stock","库存","庫存","készlet","nyitókészlet"]},
 ];
 const normalizedSpreadsheetHeader=value=>String(value??"").trim().toLocaleLowerCase().replace(/[\s_\-\/()（）]+/g,"");
 const loadExcelJs=async()=>{const module=await import("exceljs");return module.default||module};
@@ -244,7 +245,7 @@ function ProductImportModal({categories,onClose,onImport}) {
   const downloadTemplate=async()=>{
     const ExcelJS=await loadExcelJs();
     const headers=[t("productImage"),...productSpreadsheetFields.map(field=>t(field.label))];
-    const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("products"));sheet.addRow(headers);formatProductWorksheet(sheet,[12,14,16,24,24,16,18,10,12,14,14,14,14]);sheet.getRow(2).height=60;
+    const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("products"));sheet.addRow(headers);formatProductWorksheet(sheet,[12,14,16,24,24,16,18,10,12,14,14,14,14,12]);sheet.getRow(2).height=60;
     const notes=workbook.addWorksheet(t("instructions"));[t("productImportInstructions"),t("productImportImageColumnHelp"),t("productImportImageFormats"),t("productImportRequiredFields"),t("productImportTextFieldTip"),t("productImportCategoryTip"),t("productImportStockTip")].forEach(note=>notes.addRow([note]));notes.getColumn(1).width=88;notes.getColumn(1).alignment={wrapText:true,vertical:"top"};notes.getRow(1).font={bold:true,color:{argb:"FF258DCA"}};
     await downloadWorkbook(workbook,`product-import-template-${localDateValue()}.xlsx`);
   };
@@ -275,6 +276,7 @@ function ProductImportModal({categories,onClose,onImport}) {
         if(!row.name)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productName")} ${t("required")}`);
         if(!Number.isSafeInteger(row.boxSize)||row.boxSize<=0)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidBoxSize")}`);
         if([row.cost,row.priceHuf,row.priceEur,row.priceUsd].some(value=>!Number.isFinite(value)||value<0))validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidPrice")}`);
+        if(!Number.isSafeInteger(row.stock)||row.stock<0)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productImportInvalidStock")}`);
         parsed.push(row);
       });
       if(!parsed.length)validation.push(t("productImportEmpty"));
@@ -303,7 +305,7 @@ function ProductImportModal({categories,onClose,onImport}) {
   };
   const submit=async()=>{if(!rows.length||errors.length)return;setBusy(true);setServerError("");try{await onImport(rows);onClose()}catch(error){setServerError(error.message)}finally{setBusy(false)}};
   return <Modal title={t("importProducts")} onClose={onClose} wide>
-    <div className="product-import-panel"><div className="product-import-actions"><label className="outline file-button"><Upload size={16}/>{t("selectExcelFile")}<input type="file" accept=".xlsx" onChange={chooseFile} disabled={busy}/></label><button type="button" className="outline" onClick={downloadTemplate}><Download size={16}/>{t("downloadImportTemplate")}</button><span>{fileName||t("noFileSelected")}</span></div><p>{t("productImportHelp")}</p>{busy&&<div className="empty">{t("loading")}</div>}{errors.length>0&&<div className="product-import-errors"><b>{t("productImportValidationFailed")}</b>{errors.map((error,index)=><span key={`${error}-${index}`}>{error}</span>)}</div>}{serverError&&<div className="form-error">{serverError}</div>}{rows.length>0&&<div className="table-wrap product-import-preview"><table><thead><tr><th>{t("rowNumber")}</th><th>{t("productImage")}</th><th>{t("productSku")}</th><th>{t("productBarcode")}</th><th>{t("productName")}</th><th>{t("productCategory")}</th><th>{t("priceHuf")}</th></tr></thead><tbody>{rows.slice(0,10).map(row=><tr key={row.sourceRow}><td>{row.sourceRow}</td><td>{row.image?<img className="product-import-thumbnail" src={row.image.previewUrl} alt=""/>:"—"}</td><td>{row.sku}</td><td>{row.barcode||"—"}</td><td>{row.name}</td><td>{row.category||"—"}</td><td>{row.priceHuf}</td></tr>)}</tbody></table>{rows.length>10&&<div className="product-import-more">{t("productImportMoreRows").replace("{count}",rows.length-10)}</div>}</div>}<div className="product-import-summary">{rows.length>0&&<span>{t("productImportReadyWithImages").replace("{count}",rows.length).replace("{images}",rows.filter(row=>row.image).length)}</span>}</div></div>
+    <div className="product-import-panel"><div className="product-import-actions"><label className="outline file-button"><Upload size={16}/>{t("selectExcelFile")}<input type="file" accept=".xlsx" onChange={chooseFile} disabled={busy}/></label><button type="button" className="outline" onClick={downloadTemplate}><Download size={16}/>{t("downloadImportTemplate")}</button><span>{fileName||t("noFileSelected")}</span></div><p>{t("productImportHelp")}</p>{busy&&<div className="empty">{t("loading")}</div>}{errors.length>0&&<div className="product-import-errors"><b>{t("productImportValidationFailed")}</b>{errors.map((error,index)=><span key={`${error}-${index}`}>{error}</span>)}</div>}{serverError&&<div className="form-error">{serverError}</div>}{rows.length>0&&<div className="table-wrap product-import-preview"><table><thead><tr><th>{t("rowNumber")}</th><th>{t("productImage")}</th><th>{t("productSku")}</th><th>{t("productBarcode")}</th><th>{t("productName")}</th><th>{t("productCategory")}</th><th>{t("priceHuf")}</th><th>{t("currentStock")}</th></tr></thead><tbody>{rows.slice(0,10).map(row=><tr key={row.sourceRow}><td>{row.sourceRow}</td><td>{row.image?<img className="product-import-thumbnail" src={row.image.previewUrl} alt=""/>:"—"}</td><td>{row.sku}</td><td>{row.barcode||"—"}</td><td>{row.name}</td><td>{row.category||"—"}</td><td>{row.priceHuf}</td><td>{row.stock}</td></tr>)}</tbody></table>{rows.length>10&&<div className="product-import-more">{t("productImportMoreRows").replace("{count}",rows.length-10)}</div>}</div>}<div className="product-import-summary">{rows.length>0&&<span>{t("productImportReadyWithImages").replace("{count}",rows.length).replace("{images}",rows.filter(row=>row.image).length)}</span>}</div></div>
     <div className="modal-actions"><button className="outline" onClick={onClose} disabled={busy}>{t("cancel")}</button><button className="primary" onClick={submit} disabled={busy||!rows.length||errors.length>0}>{busy?t("saving"):t("confirmImportProducts")}</button></div>
   </Modal>;
 }
@@ -326,8 +328,8 @@ function Products({ products, categories=[], onCreate, onUpdate, onImport, onUpl
   ]:productColumnOptions.filter(option=>selectedColumns.includes(option.key));
   const exportProducts=async()=>{
     const ExcelJS=await loadExcelJs();
-    const headers=productSpreadsheetFields.map(field=>t(field.label)),extraHeaders=[t("inventoryStatistics"),t("inboundStatistics"),t("salesStatistics"),t("createdAt")];
-    const data=filtered.map(product=>[...productSpreadsheetFields.map(field=>product[field.key]??""),product.stock,product.purchaseQuantity,product.salesQuantity,product.createdAt?new Date(product.createdAt):""]);
+    const headers=productSpreadsheetFields.map(field=>t(field.label)),extraHeaders=[t("inboundStatistics"),t("salesStatistics"),t("createdAt")];
+    const data=filtered.map(product=>[...productSpreadsheetFields.map(field=>product[field.key]??""),product.purchaseQuantity,product.salesQuantity,product.createdAt?new Date(product.createdAt):""]);
     const workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("products"));sheet.addRow([...headers,...extraHeaders]);data.forEach(row=>sheet.addRow(row));formatProductWorksheet(sheet,[14,16,24,24,16,18,10,12,14,14,14,14,12,14,14,20]);sheet.getColumn(16).numFmt="yyyy-mm-dd hh:mm";await downloadWorkbook(workbook,`products-${localDateValue()}.xlsx`);
   };
   const importRows=async rows=>{setImageError("");const result=await onImport(rows);setImportMessage(t("productImportSuccessWithImages").replace("{count}",result.count).replace("{images}",result.imageCount||0));if(result.imageErrors?.length)setImageError(t("productImportImagePartial").replace("{count}",result.imageErrors.length));return result};
