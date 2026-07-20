@@ -311,9 +311,10 @@ app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
 app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
   const source=Array.isArray(req.body?.products)?req.body.products:[];
   if(!source.length||source.length>1000)return res.status(400).json({error:"product import must contain between 1 and 1000 rows"});
+  const importNumber=(value,fallback)=>String(value??"").trim()===""?fallback:Number(value);
   const products=source.map((item,index)=>({
     row:index+2,sku:String(item?.sku||"").trim(),barcode:String(item?.barcode||"").trim(),name:String(item?.name||"").trim(),name2:String(item?.name2||"").trim(),category:String(item?.category||"").trim(),supplier:String(item?.supplier||"").trim(),unit:String(item?.unit||"个").trim()||"个",
-    boxSize:Number(item?.boxSize??1),cost:Number(item?.cost??0),priceHuf:Number(item?.priceHuf??0),priceEur:Number(item?.priceEur??0),priceUsd:Number(item?.priceUsd??0),stock:Number(item?.stock??0),
+    boxSize:importNumber(item?.boxSize,1),cost:importNumber(item?.cost,0),priceHuf:importNumber(item?.priceHuf,0),priceEur:importNumber(item?.priceEur,0),priceUsd:importNumber(item?.priceUsd,0),stock:importNumber(item?.stock,0),
   }));
   const errors=[];
   for(const product of products){

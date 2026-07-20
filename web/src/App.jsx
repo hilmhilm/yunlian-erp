@@ -43,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.20-7";
+const uiVersion = "2026.07.20-8";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -288,7 +288,7 @@ function ProductImportModal({categories,onClose,onImport}) {
       matrix.slice(1).forEach((source,rowIndex)=>{
         if(source.every(value=>String(value??"").trim()===""))return;
         const row={};
-        for(const field of productSpreadsheetFields){const value=indexes[field.key]===undefined?"":source[indexes[field.key]];row[field.key]=field.numeric?Number(value===""?(field.key==="boxSize"?1:0):value):String(value??"").trim()}
+        for(const field of productSpreadsheetFields){const value=indexes[field.key]===undefined?"":source[indexes[field.key]],blank=String(value??"").trim()==="";row[field.key]=field.numeric?Number(blank?(field.key==="boxSize"?1:0):value):String(value??"").trim()}
         row.sourceRow=rowIndex+2;
         if(!row.sku)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productSku")} ${t("required")}`);
         if(!row.name)validation.push(`${t("rowNumber")} ${row.sourceRow}：${t("productName")} ${t("required")}`);
