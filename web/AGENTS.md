@@ -9,6 +9,7 @@ When implementing from a selected generated mock, treat that image as the source
 ## Durable product requirements
 
 - Every completed code update must increment the visible `uiVersion` in `src/App.jsx`. The handoff must explicitly state which containers need rebuilding (`web`, `api`, or both) and whether an automatic database migration is included.
+- Every deployment handoff must list all changed files that must be synchronized to the NAS. When dependencies change, call out the relevant package manifest and lockfile separately (for example `web/package.json` and `web/pnpm-lock.yaml`) before giving rebuild commands; never assume the user deploys with a full Git checkout.
 - The ERP is multilingual by design. All new user-facing copy must be added through `src/i18n.jsx`; do not hardcode new UI strings in business components.
 - Initial supported locales are Simplified Chinese (`zh-CN`), English (`en`), and Hungarian (`hu`). Missing keys intentionally fall back to Simplified Chinese.
 - Overselling is controlled by the administrator's basic-information setting and defaults to enabled. When enabled inventory may be negative; when disabled the backend must prevent every sales action that would reduce stock below zero.
