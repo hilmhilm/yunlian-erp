@@ -200,6 +200,10 @@ Object.assign(messages.hu,{
   categoryImportHelp:".xlsx fájlokat támogat. Mentés előtt minden fő- és alkategória ellenőrzésre kerül.",categoryImportInstructions:"Kategóriák tömeges importálásának útmutatója",categoryImportMainTip:"Minden sorban kötelező a főkategória neve. Több alkategóriához ugyanaz a főkategória több sorban megismételhető.",categoryImportChildTip:"Ha csak a főkategória van kitöltve, főkategória jön létre. Alkategória megadásakor az adott sor főkategóriája alá kerül. Meglévő főkategória is használható szülőként.",categoryImportImageTip:"A kategóriaképek nem importálhatók Excelből; létrehozás után külön tölthetők fel a kategóriaoldalon.",categoryImportEmpty:"Az Excel-fájl nem tartalmaz kategóriaadatot",categoryImportReadFailed:"A kategória Excel-fájl nem olvasható",categoryImportTooManyRows:"Egyszerre legfeljebb 1000 kategóriasor importálható",categoryImportChildNameRequired:"A második alkategórianévhez az alkategória nevét is meg kell adni",categoryImportMainName2Mismatch:"Ugyanahhoz a főkategóriához eltérő második név tartozik:",categoryImportDuplicateName:"Ismétlődő kategórianév:",categoryImportSuccess:"{count} kategória importálva: {main} fő- és {child} alkategória"
 });
 
+Object.assign(messages["zh-CN"],{pagination:"列表分页",paginationSummary:"第 {page} / {pages} 页，共 {count} 条",previousPage:"上一页",nextPage:"下一页"});
+Object.assign(messages.en,{pagination:"List pagination",paginationSummary:"Page {page} of {pages} · {count} records",previousPage:"Previous",nextPage:"Next"});
+Object.assign(messages.hu,{pagination:"Lista lapozása",paginationSummary:"{page}. / {pages} oldal · {count} rekord",previousPage:"Előző",nextPage:"Következő"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
