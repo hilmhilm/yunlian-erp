@@ -850,6 +850,13 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
+app.patch("/api/sales/:id/notes", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+  const notes=String(req.body?.notes||"").trim().slice(0,1000);
+  const result=await pool.query("update sales set notes=$1 where id=$2 and deleted_at is null returning *",[notes,req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"sale not found"});
+  res.json(result.rows[0]);
+}));
+
 app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const fields={stockDeducted:"stock_deducted",delivered:"delivered"};
   const changes=Object.entries(fields).filter(([key])=>typeof req.body?.[key]==="boolean");

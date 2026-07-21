@@ -407,6 +407,12 @@ export async function updateSaleStatus(token, saleId, changes) {
   }));
 }
 
+export async function updateSaleNotes(token, saleId, notes) {
+  return normalizeSale(await request(`/sales/${saleId}/notes`, {
+    token, method: "PATCH", body: JSON.stringify({ notes }),
+  }));
+}
+
 export async function createSalePayment(token, saleId, payment) {
   return request(`/sales/${saleId}/payments`, {
     token, method: "POST", body: JSON.stringify(payment),
