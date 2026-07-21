@@ -475,21 +475,19 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
   const body=req.body||{};
   const supplier=String(body.supplier||"").trim();
   const settings=await getSystemSettings();
-  const warehouse=String(body.warehouse||settings.default_warehouse).trim();
-  const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity),cost:Number(item.cost)})):[];
-  if(!supplier) return res.status(400).json({error:"supplier is required"});
-  if(!warehouse) return res.status(400).json({error:"warehouse is required"});
+  const warehouse=String(body.warehouse||"").trim()||settings.default_warehouse;
+  const items=Array.isArray(body.items)?body.items.map(item=>{const rawCost=String(item.cost??"").trim();return {productId:Number(item.productId),quantity:Number(item.quantity),cost:rawCost===""?null:Number(rawCost)}}):[];
   if(!items.length||items.length>200) return res.status(400).json({error:"purchase must contain between 1 and 200 items"});
-  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity<=0||!Number.isFinite(item.cost)||item.cost<0)) return res.status(400).json({error:"purchase contains an invalid item"});
+  if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity<=0||(item.cost!==null&&(!Number.isFinite(item.cost)||item.cost<0)))) return res.status(400).json({error:"purchase contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length) return res.status(400).json({error:"duplicate products are not allowed"});
-  const total=items.reduce((sum,item)=>sum+item.quantity*item.cost,0);
+  const total=items.reduce((sum,item)=>sum+item.quantity*(item.cost??0),0);
   const client=await pool.connect();
   try{await client.query("begin");
     const productIds=items.map(item=>item.productId);
     const products=await client.query("select id from products where id=any($1::bigint[]) and deleted_at is null for update",[productIds]);
     if(products.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[body.orderNo||`${settings.purchase_order_prefix}${Date.now()}`,supplier,warehouse,total,"已入库"]);
-    for(const item of items){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,warehouse,item.quantity,order.rows[0].order_no,req.user.username]);}
+    for(const item of items){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost??0]);await client.query("update products set stock=stock+$1,cost=coalesce($2,cost),updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,warehouse,item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
