@@ -204,6 +204,10 @@ Object.assign(messages["zh-CN"],{pagination:"列表分页",paginationSummary:"�
 Object.assign(messages.en,{pagination:"List pagination",paginationSummary:"Page {page} of {pages} · {count} records",previousPage:"Previous",nextPage:"Next"});
 Object.assign(messages.hu,{pagination:"Lista lapozása",paginationSummary:"{page}. / {pages} oldal · {count} rekord",previousPage:"Előző",nextPage:"Következő"});
 
+Object.assign(messages["zh-CN"],{deleteRecord:"删除",confirmDeleteRecord:"确定删除这条记录吗？删除后将不再出现在业务列表中。",deleteFailed:"删除失败",invoiceInternalDeleteConfirm:"仅删除 ERP 内部的发票记录，不会作废或删除 Számlázz.hu 中的真实发票。确定继续吗？",invoiceLifecycle_erp_deleted:"ERP 记录已删除",movement_purchase_delete:"删除入库单冲回",movement_sale_delete:"删除销售单恢复库存"});
+Object.assign(messages.en,{deleteRecord:"Delete",confirmDeleteRecord:"Delete this record? It will no longer appear in business lists.",deleteFailed:"Delete failed",invoiceInternalDeleteConfirm:"This only removes the ERP invoice record. It does not void or delete the real invoice in Számlázz.hu. Continue?",invoiceLifecycle_erp_deleted:"ERP record deleted",movement_purchase_delete:"Purchase deletion reversal",movement_sale_delete:"Sales deletion stock restore"});
+Object.assign(messages.hu,{deleteRecord:"Törlés",confirmDeleteRecord:"Törli ezt a rekordot? Többé nem jelenik meg az üzleti listákon.",deleteFailed:"A törlés sikertelen",invoiceInternalDeleteConfirm:"Ez csak az ERP belső számlarekordját távolítja el. A Számlázz.hu valódi számláját nem sztornózza és nem törli. Folytatja?",invoiceLifecycle_erp_deleted:"ERP-rekord törölve",movement_purchase_delete:"Bevételezés törlésének visszavezetése",movement_sale_delete:"Eladás törlése miatti készlet-visszaállítás"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

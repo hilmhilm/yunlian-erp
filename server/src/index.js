@@ -202,11 +202,11 @@ app.patch("/api/users/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
 
 app.get("/api/dashboard", asyncRoute(async (_req, res) => {
   const [products, customers, sales, returns, purchases] = await Promise.all([
-    pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products"),
-    pool.query("select count(*)::int count from customers"),
-    pool.query("select count(*)::int count,coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where created_at::date=current_date"),
-    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where sr.created_at::date=current_date"),
-    pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where created_at::date=current_date")
+    pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products where deleted_at is null"),
+    pool.query("select count(*)::int count from customers where deleted_at is null"),
+    pool.query("select count(*)::int count,coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where deleted_at is null and created_at::date=current_date"),
+    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where s.deleted_at is null and sr.created_at::date=current_date"),
+    pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where deleted_at is null and created_at::date=current_date")
   ]);
   const saleTotals={...sales.rows[0]};
   for(const currency of ["huf","eur","usd"])saleTotals[`total_${currency}`]=Number(saleTotals[`total_${currency}`])-Number(returns.rows[0][`total_${currency}`]);
@@ -214,13 +214,13 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
 }));
 
 app.get("/api/categories", asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select c.*,coalesce((select count(*) from products p where lower(btrim(p.category))=lower(c.name)),0)::int product_count from product_categories c order by coalesce(c.parent_id,c.id),c.parent_id nulls first,lower(c.name)");
+  const result=await pool.query("select c.*,coalesce((select count(*) from products p where p.deleted_at is null and lower(btrim(p.category))=lower(c.name)),0)::int product_count from product_categories c where c.deleted_at is null order by coalesce(c.parent_id,c.id),c.parent_id nulls first,lower(c.name)");
   res.json(result.rows);
 }));
 app.post("/api/categories", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
   const name=String(req.body?.name||"").trim(),name2=String(req.body?.name2||"").trim(),parentId=req.body?.parentId===null||req.body?.parentId===""||req.body?.parentId===undefined?null:Number(req.body.parentId);
   if(!name||(parentId!==null&&!Number.isSafeInteger(parentId)))return res.status(400).json({error:"invalid category data"});
-  if(parentId!==null){const parent=await pool.query("select id from product_categories where id=$1 and parent_id is null",[parentId]);if(!parent.rowCount)return res.status(400).json({error:"parent category must be a main category"})}
+  if(parentId!==null){const parent=await pool.query("select id from product_categories where id=$1 and parent_id is null and deleted_at is null",[parentId]);if(!parent.rowCount)return res.status(400).json({error:"parent category must be a main category"})}
   const result=await pool.query("insert into product_categories(parent_id,name,name2) values($1,$2,$3) returning *,0::int product_count",[parentId,name,name2]);
   res.status(201).json(result.rows[0]);
 }));
@@ -239,7 +239,7 @@ app.post("/api/categories/import", requireRole("admin","purchasing","warehouse")
   const client=await pool.connect();
   try{
     await client.query("begin");
-    const existing=(await client.query("select id,parent_id,name from product_categories for update")).rows,existingByName=new Map(existing.map(category=>[category.name.toLocaleLowerCase(),category]));
+    const existing=(await client.query("select id,parent_id,name from product_categories where deleted_at is null for update")).rows,existingByName=new Map(existing.map(category=>[category.name.toLocaleLowerCase(),category]));
     for(const definition of mainDefinitions.values()){const category=existingByName.get(definition.name.toLocaleLowerCase());if(category?.parent_id!==null&&category?.parent_id!==undefined)errors.push(`row ${definition.row}: ${definition.name} already exists as a subcategory`)}
     for(const row of rows){if(!row.childName)continue;const category=existingByName.get(row.childName.toLocaleLowerCase());if(category)errors.push(`row ${row.row}: category already exists (${row.childName})`)}
     if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
@@ -260,22 +260,22 @@ app.patch("/api/categories/:id", requireRole("admin","purchasing","warehouse"), 
   const client=await pool.connect();
   try{
     await client.query("begin");
-    const current=await client.query("select * from product_categories where id=$1 for update",[req.params.id]);
+    const current=await client.query("select * from product_categories where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!current.rowCount){await client.query("rollback");return res.status(404).json({error:"category not found"})}
     const row=current.rows[0],name=req.body?.name===undefined?row.name:String(req.body.name).trim(),name2=req.body?.name2===undefined?row.name2:String(req.body.name2).trim(),parentId=req.body?.parentId===undefined?row.parent_id:req.body.parentId===null||req.body.parentId===""?null:Number(req.body.parentId);
     if(!name||(parentId!==null&&(!Number.isSafeInteger(parentId)||String(parentId)===String(req.params.id)))){await client.query("rollback");return res.status(400).json({error:"invalid category data"})}
-    if(parentId!==null){const parent=await client.query("select id from product_categories where id=$1 and parent_id is null",[parentId]);const children=await client.query("select 1 from product_categories where parent_id=$1 limit 1",[req.params.id]);if(!parent.rowCount||children.rowCount){await client.query("rollback");return res.status(400).json({error:"category hierarchy is limited to two levels"})}}
+    if(parentId!==null){const parent=await client.query("select id from product_categories where id=$1 and parent_id is null and deleted_at is null",[parentId]);const children=await client.query("select 1 from product_categories where parent_id=$1 and deleted_at is null limit 1",[req.params.id]);if(!parent.rowCount||children.rowCount){await client.query("rollback");return res.status(400).json({error:"category hierarchy is limited to two levels"})}}
     const result=await client.query("update product_categories set parent_id=$1,name=$2,name2=$3,updated_at=now() where id=$4 returning *",[parentId,name,name2,req.params.id]);
     if(name!==row.name)await client.query("update products set category=$1,updated_at=now() where lower(btrim(category))=lower($2)",[name,row.name]);
     await client.query("commit");
-    const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[name]);
+    const count=await pool.query("select count(*)::int product_count from products where deleted_at is null and lower(btrim(category))=lower($1)",[name]);
     res.json({...result.rows[0],product_count:count.rows[0].product_count});
   }catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
 app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
   const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase(),extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
   if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"invalid category image"});
-  const category=await pool.query("select id,image_url from product_categories where id=$1",[req.params.id]);
+  const category=await pool.query("select id,image_url from product_categories where id=$1 and deleted_at is null",[req.params.id]);
   if(!category.rowCount)return res.status(404).json({error:"category not found"});
   const fileName=`category-${req.params.id}-${crypto.randomUUID()}.${extensions[mimeType]}`,filePath=path.join(uploadDirectory,fileName);
   await writeFile(filePath,req.body,{flag:"wx"});
@@ -284,28 +284,44 @@ app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse
   catch(error){await unlink(filePath).catch(()=>{});throw error}
   const previous=category.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[updated.rows[0].name]);
+  const count=await pool.query("select count(*)::int product_count from products where deleted_at is null and lower(btrim(category))=lower($1)",[updated.rows[0].name]);
   res.json({...updated.rows[0],product_count:count.rows[0].product_count});
 }));
 app.delete("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
-  const category=await pool.query("select * from product_categories where id=$1",[req.params.id]);
+  const category=await pool.query("select * from product_categories where id=$1 and deleted_at is null",[req.params.id]);
   if(!category.rowCount)return res.status(404).json({error:"category not found"});
   const updated=await pool.query("update product_categories set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
   const previous=category.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const count=await pool.query("select count(*)::int product_count from products where lower(btrim(category))=lower($1)",[updated.rows[0].name]);
+  const count=await pool.query("select count(*)::int product_count from products where deleted_at is null and lower(btrim(category))=lower($1)",[updated.rows[0].name]);
   res.json({...updated.rows[0],product_count:count.rows[0].product_count});
+}));
+
+app.delete("/api/categories/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const client=await pool.connect();let imageUrls=[];
+  try{
+    await client.query("begin");
+    const category=await client.query("select id,parent_id,name from product_categories where id=$1 and deleted_at is null for update",[req.params.id]);
+    if(!category.rowCount){const error=new Error("category not found");error.status=404;throw error}
+    const descendants=await client.query("select id,name,image_url from product_categories where (id=$1 or parent_id=$1) and deleted_at is null for update",[req.params.id]);
+    const names=descendants.rows.map(row=>row.name),ids=descendants.rows.map(row=>row.id);imageUrls=descendants.rows.map(row=>row.image_url).filter(Boolean);
+    if(names.length)await client.query("update products set category='',updated_at=now() where deleted_at is null and lower(btrim(category))=any($1::text[])",[names.map(name=>name.toLocaleLowerCase())]);
+    await client.query("update product_categories set deleted_at=now(),deleted_by=$1,updated_at=now() where id=any($2::bigint[])",[req.user.username,ids]);
+    await client.query("commit");
+    for(const imageUrl of imageUrls)if(imageUrl.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(imageUrl))).catch(()=>{});
+    res.json({id:Number(req.params.id),deletedCount:ids.length});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 
 app.get("/api/products", asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
   const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
   if(categoryId!==null&&!Number.isSafeInteger(categoryId))return res.status(400).json({error:"invalid category"});
-  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2::bigint is null or lower(btrim(p.category)) in (select lower(name) from product_categories where id=$2 or parent_id=$2)) order by p.id desc limit 500", [q,categoryId]);
+  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.deleted_at is null and (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2::bigint is null or lower(btrim(p.category)) in (select lower(name) from product_categories where deleted_at is null and (id=$2 or parent_id=$2))) order by p.id desc limit 500", [q,categoryId]);
   res.json(result.rows);
 }));
 app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select name from product_categories order by lower(name)");
+  const result=await pool.query("select name from product_categories where deleted_at is null order by lower(name)");
   res.json(result.rows.map(row=>row.name));
 }));
 app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
@@ -333,10 +349,10 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
   const client=await pool.connect();
   try{
     await client.query("begin");
-    const categories=(await client.query("select name from product_categories")).rows,categoryMap=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row.name]));
+    const categories=(await client.query("select name from product_categories where deleted_at is null")).rows,categoryMap=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row.name]));
     for(const product of products){if(product.category&&!categoryMap.has(product.category.toLocaleLowerCase()))errors.push(`row ${product.row}: category does not exist (${product.category})`);else if(product.category)product.category=categoryMap.get(product.category.toLocaleLowerCase())}
     const skus=products.map(product=>product.sku),barcodes=products.map(product=>product.barcode).filter(Boolean);
-    const existing=await client.query("select sku,barcode from products where lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[]))",[skus.map(value=>value.toLocaleLowerCase()),barcodes.map(value=>value.toLocaleLowerCase())]);
+    const existing=await client.query("select sku,barcode from products where deleted_at is null and (lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[])))",[skus.map(value=>value.toLocaleLowerCase()),barcodes.map(value=>value.toLocaleLowerCase())]);
     const existingSkus=new Set(existing.rows.map(row=>String(row.sku).toLocaleLowerCase())),existingBarcodes=new Set(existing.rows.map(row=>String(row.barcode||"").toLocaleLowerCase()).filter(Boolean));
     for(const product of products){if(existingSkus.has(product.sku.toLocaleLowerCase()))errors.push(`row ${product.row}: SKU already exists (${product.sku})`);if(product.barcode&&existingBarcodes.has(product.barcode.toLocaleLowerCase()))errors.push(`row ${product.row}: barcode already exists (${product.barcode})`)}
     if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
@@ -351,7 +367,7 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 app.get("/api/products/:id", asyncRoute(async (req,res)=>{
-  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.product_id=p.id) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi where pi.product_id=p.id) purchase_quantity from products p where p.id=$1",[req.params.id]);
+  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.id=$1 and p.deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
   res.json({...product.rows[0],movements:movements.rows});
@@ -360,7 +376,7 @@ app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRo
   const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),name2=String(b.name2||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),priceHuf=Number(b.priceHuf??b.price??0),priceEur=Number(b.priceEur??0),priceUsd=Number(b.priceUsd??0);
   if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||[cost,priceHuf,priceEur,priceUsd].some(value=>!Number.isFinite(value)||value<0))return res.status(400).json({error:"invalid product data"});
   const category=String(b.category||"").trim();
-  if(category&&!(await pool.query("select 1 from product_categories where name=$1",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
+  if(category&&!(await pool.query("select 1 from product_categories where name=$1 and deleted_at is null",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
   const result = await pool.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0) returning *", [sku,String(b.barcode||"").trim(),name,name2,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,priceHuf,priceEur,priceUsd]);
   res.status(201).json(result.rows[0]);
 }));
@@ -369,17 +385,17 @@ app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), as
   const sku=b.sku===undefined?null:String(b.sku).trim(),name=b.name===undefined?null:String(b.name).trim(),name2=b.name2===undefined?null:String(b.name2).trim(),unit=b.unit===undefined?null:String(b.unit).trim(),boxSize=b.boxSize===undefined?null:Number(b.boxSize),cost=b.cost===undefined?null:Number(b.cost),priceHuf=b.priceHuf===undefined&&b.price===undefined?null:Number(b.priceHuf??b.price),priceEur=b.priceEur===undefined?null:Number(b.priceEur),priceUsd=b.priceUsd===undefined?null:Number(b.priceUsd);
   if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||[cost,priceHuf,priceEur,priceUsd].some(value=>value!==null&&(!Number.isFinite(value)||value<0)))return res.status(400).json({error:"invalid product data"});
   const category=b.category===undefined?null:String(b.category).trim();
-  if(category&&!(await pool.query("select 1 from product_categories where name=$1",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
-  const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),cost=coalesce($9,cost),price=coalesce($10,price),price_eur=coalesce($11,price_eur),price_usd=coalesce($12,price_usd),updated_at=now() where id=$13 returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
+  if(category&&!(await pool.query("select 1 from product_categories where name=$1 and deleted_at is null",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
+  const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),cost=coalesce($9,cost),price=coalesce($10,price),price_eur=coalesce($11,price_eur),price_usd=coalesce($12,price_usd),updated_at=now() where id=$13 and deleted_at is null returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
-  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
 app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
   const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase();
   const extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
   if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"only non-empty JPG, PNG and WebP images are supported"});
-  const product=await pool.query("select id,image_url from products where id=$1",[req.params.id]);
+  const product=await pool.query("select id,image_url from products where id=$1 and deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const fileName=`product-${req.params.id}-${crypto.randomUUID()}.${extensions[mimeType]}`;
   const filePath=path.join(uploadDirectory,fileName);
@@ -389,17 +405,23 @@ app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse",
   catch(error){await unlink(filePath).catch(()=>{});throw error}
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
 app.delete("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), asyncRoute(async (req,res)=>{
-  const product=await pool.query("select * from products where id=$1",[req.params.id]);
+  const product=await pool.query("select * from products where id=$1 and deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const updated=await pool.query("update products set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const statistics=await pool.query("select (select coalesce(sum(quantity),0)::int from sale_items where product_id=$1) sales_quantity,(select coalesce(sum(quantity),0)::int from purchase_items where product_id=$1) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
+}));
+app.delete("/api/products/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const product=await pool.query("update products set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id,image_url",[req.user.username,req.params.id]);
+  if(!product.rowCount)return res.status(404).json({error:"product not found"});
+  const imageUrl=product.rows[0].image_url;if(imageUrl?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(imageUrl))).catch(()=>{});
+  res.json({id:Number(product.rows[0].id)});
 }));
 app.get("/api/i18n/locales", asyncRoute(async (_req,res)=>{
   res.json((await pool.query("select locale,display_name,is_default from supported_locales where enabled=true order by is_default desc,locale")).rows);
@@ -411,7 +433,7 @@ app.put("/api/products/:id/translations/:locale", requireRole("admin","purchasin
 
 app.get("/api/customers", requireRole("admin","sales","finance"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
-  const result=await pool.query("select * from customers where name ilike $1 or phone ilike $1 or city ilike $1 or tax_number ilike $1 order by id desc limit 500",[q]);
+  const result=await pool.query("select * from customers where deleted_at is null and (name ilike $1 or phone ilike $1 or city ilike $1 or tax_number ilike $1) order by id desc limit 500",[q]);
   res.json(result.rows);
 }));
 app.post("/api/customers", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
@@ -421,15 +443,19 @@ app.post("/api/customers", requireRole("admin","sales"), asyncRoute(async (req,r
   res.status(201).json(result.rows[0]);
 }));
 app.patch("/api/customers/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
-  const b=req.body||{},current=(await pool.query("select * from customers where id=$1",[req.params.id])).rows[0];
+  const b=req.body||{},current=(await pool.query("select * from customers where id=$1 and deleted_at is null",[req.params.id])).rows[0];
   if(!current)return res.status(404).json({error:"customer not found"});
   const value=(camel,column,max=500)=>String(b[camel]??current[column]??"").trim().slice(0,max),name=value("name","name",200);
   if(!name)return res.status(400).json({error:"customer name is required"});
-  const result=await pool.query("update customers set name=$1,phone=$2,city=$3,address=$4,customer_group=$5,country=$6,postal_code=$7,tax_number=$8,email=$9,updated_at=now() where id=$10 returning *",[name,value("phone","phone",100),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
+  const result=await pool.query("update customers set name=$1,phone=$2,city=$3,address=$4,customer_group=$5,country=$6,postal_code=$7,tax_number=$8,email=$9,updated_at=now() where id=$10 and deleted_at is null returning *",[name,value("phone","phone",100),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
   res.json(result.rows[0]);
 }));
+app.delete("/api/customers/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const result=await pool.query("update customers set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id",[req.user.username,req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"customer not found"});res.json({id:Number(result.rows[0].id)});
+}));
 
-app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id group by p.id order by p.created_at desc limit 500")).rows)));
+app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id where p.deleted_at is null group by p.id order by p.created_at desc limit 500")).rows)));
 app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const supplier=String(body.supplier||"").trim();
@@ -445,12 +471,25 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
   const client=await pool.connect();
   try{await client.query("begin");
     const productIds=items.map(item=>item.productId);
-    const products=await client.query("select id from products where id=any($1::bigint[]) for update",[productIds]);
+    const products=await client.query("select id from products where id=any($1::bigint[]) and deleted_at is null for update",[productIds]);
     if(products.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const order=await client.query("insert into purchases(order_no,supplier,warehouse,total,status) values($1,$2,$3,$4,$5) returning *",[body.orderNo||`${settings.purchase_order_prefix}${Date.now()}`,supplier,warehouse,total,"已入库"]);
     for(const item of items){await client.query("insert into purchase_items(purchase_id,product_id,quantity,cost) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.cost]);await client.query("update products set stock=stock+$1,cost=$2,updated_at=now() where id=$3",[item.quantity,item.cost,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase',$4,$5)",[item.productId,warehouse,item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
+}));
+
+app.delete("/api/purchases/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const purchase=await client.query("select id,order_no,warehouse from purchases where id=$1 and deleted_at is null for update",[req.params.id]);
+    if(!purchase.rowCount){const error=new Error("purchase not found");error.status=404;throw error}
+    const items=await client.query("select product_id,quantity from purchase_items where purchase_id=$1 order by product_id for update",[req.params.id]);
+    for(const item of items.rows){await client.query("select id from products where id=$1 for update",[item.product_id]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.product_id]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'purchase_delete',$4,$5)",[item.product_id,purchase.rows[0].warehouse,-Number(item.quantity),purchase.rows[0].order_no,req.user.username])}
+    await client.query("update purchases set deleted_at=now(),deleted_by=$1 where id=$2",[req.user.username,req.params.id]);
+    await client.query("commit");res.json({id:Number(req.params.id)});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 
 app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
@@ -460,16 +499,16 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   const validDate=value=>datePattern.test(value)&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
   if((startDate&&!validDate(startDate))||(endDate&&!validDate(endDate)))return res.status(400).json({error:"invalid date range"});
   if(startDate&&endDate&&startDate>endDate)return res.status(400).json({error:"start date must not be after end date"});
-  const params=startDate||endDate?[businessTimezone]:[],filters=[];
+  const params=startDate||endDate?[businessTimezone]:[],filters=["s.deleted_at is null"];
   if(startDate){params.push(startDate);filters.push(`s.created_at >= ($${params.length}::date at time zone $1)`)}
   if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
-  const where=filters.length?` where ${filters.join(" and ")}`:"";
-  const limit=filters.length?"":" limit 500";
-  const result=await pool.query(`select s.*,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
+  const where=` where ${filters.join(" and ")}`;
+  const limit=startDate||endDate?"":" limit 500";
+  const result=await pool.query(`select s.*,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total,exists(select 1 from invoices deleted_invoice where deleted_invoice.sale_id=s.id and deleted_invoice.deleted_at is not null) invoice_record_deleted from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
   const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.unit,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   const payments=await pool.query("select id,amount,method,booked_on,category,note,created_by,created_at from sale_payments where sale_id=$1 order by created_at desc,id desc",[req.params.id]);
@@ -478,20 +517,20 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
 }));
 
 app.get("/api/invoices", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>{
-  const result=await pool.query("select i.*,s.order_no,coalesce(nullif(i.buyer_name,''),c.name) customer,p.invoice_number parent_invoice_number,case when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='cancellation' and x.status='issued') then 'zeroed' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') then 'voided' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='correction' and x.status='issued') then 'corrected' else i.status end lifecycle_status from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id left join invoices p on p.id=i.parent_invoice_id order by i.created_at desc limit 500");
+  const result=await pool.query("select i.*,s.order_no,coalesce(nullif(i.buyer_name,''),c.name) customer,p.invoice_number parent_invoice_number,case when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='cancellation' and x.status='issued') then 'zeroed' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') then 'voided' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='correction' and x.status='issued') then 'corrected' else i.status end lifecycle_status from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id left join invoices p on p.id=i.parent_invoice_id where s.deleted_at is null order by i.created_at desc limit 500");
   res.json(result.rows);
 }));
 
 app.get("/api/invoices/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const invoice=(await pool.query("select i.*,s.order_no,p.invoice_number parent_invoice_number from invoices i join sales s on s.id=i.sale_id left join invoices p on p.id=i.parent_invoice_id where i.id=$1",[req.params.id])).rows[0];
+  const invoice=(await pool.query("select i.*,s.order_no,p.invoice_number parent_invoice_number from invoices i join sales s on s.id=i.sale_id left join invoices p on p.id=i.parent_invoice_id where i.id=$1 and i.deleted_at is null and s.deleted_at is null",[req.params.id])).rows[0];
   if(!invoice)return res.status(404).json({error:"invoice not found"});
   const items=await pool.query("select * from invoice_items where invoice_id=$1 order by id",[req.params.id]);
-  const related=await pool.query("select id,document_type,invoice_number,status,created_at from invoices where parent_invoice_id=$1 order by created_at,id",[req.params.id]);
+  const related=await pool.query("select id,document_type,invoice_number,status,created_at from invoices where parent_invoice_id=$1 and deleted_at is null order by created_at,id",[req.params.id]);
   res.json({...invoice,items:items.rows,related:related.rows});
 }));
 
 app.get("/api/invoices/:id/pdf", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
-  const invoice=(await pool.query("select invoice_number,pdf_path,status from invoices where id=$1",[req.params.id])).rows[0];
+  const invoice=(await pool.query("select invoice_number,pdf_path,status from invoices where id=$1 and deleted_at is null",[req.params.id])).rows[0];
   if(!invoice)return res.status(404).json({error:"invoice not found"});
   if(invoice.status!=="issued"||!invoice.pdf_path)return res.status(409).json({error:"invoice PDF is not available"});
   res.setHeader("Content-Type","application/pdf");
@@ -499,13 +538,20 @@ app.get("/api/invoices/:id/pdf", requireRole("admin","sales","finance"), asyncRo
   res.sendFile(path.join(invoiceDirectory,path.basename(invoice.pdf_path)));
 }));
 
+app.delete("/api/invoices/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const result=await pool.query("update invoices set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id,invoice_number",[req.user.username,req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"invoice not found"});
+  res.json({id:Number(result.rows[0].id),invoiceNumber:result.rows[0].invoice_number,externalInvoiceUnchanged:true});
+}));
+
 app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
   const agentKey=String(process.env.SZAMLAZZ_AGENT_KEY||"").trim();
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const b=req.body||{},paymentMethod=String(b.paymentMethod||"cash"),fulfillmentDate=String(b.fulfillmentDate||""),dueDate=String(b.dueDate||""),priceFactor=Number(b.priceFactor??1),exchangeRateBank=String(b.exchangeRateBank||"MNB").trim().slice(0,100),exchangeRate=Number(b.exchangeRate);
   if(!new Set(["cash","bank_transfer"]).has(paymentMethod)||!validIsoDate(fulfillmentDate)||!validIsoDate(dueDate)||dueDate<fulfillmentDate||!Number.isFinite(priceFactor)||priceFactor<=0||priceFactor>100)return res.status(400).json({error:"invalid invoice settings"});
-  const sale=(await pool.query("select s.*,c.name customer_name,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id])).rows[0];
+  const sale=(await pool.query("select s.*,c.name customer_name,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id])).rows[0];
   if(!sale)return res.status(404).json({error:"sale not found"});
+  if((await pool.query("select 1 from invoices where sale_id=$1 and deleted_at is not null limit 1",[sale.id])).rowCount)return res.status(409).json({error:"the ERP invoice record was deleted, but the external invoice still exists; another invoice cannot be issued"});
   if(!sale.customer_id)return res.status(409).json({error:"select a customer before issuing an invoice"});
   const customer={id:sale.customer_id,name:sale.customer_name,phone:sale.customer_phone,city:sale.customer_city,address:sale.customer_address,country:sale.customer_country,postal_code:sale.customer_postal_code,tax_number:sale.customer_tax_number,email:sale.customer_email};
   if(!customer.name||!customer.postal_code||!customer.city||!customer.address)return res.status(409).json({error:"customer invoice name, postal code, city and address are required"});
@@ -563,7 +609,7 @@ app.post("/api/invoices/:id/storno", requireRole("admin","finance"), asyncRoute(
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const reason=String(req.body?.reason||"").trim().slice(0,1000);
   if(reason.length<3)return res.status(400).json({error:"storno reason is required"});
-  const source=(await pool.query("select i.*,s.order_no from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
+  const source=(await pool.query("select i.*,s.order_no from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.deleted_at is null and s.deleted_at is null and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
   if(!source||source.status!=="issued")return res.status(409).json({error:"only an issued invoice can be voided"});
   const correction=(await pool.query("select c.* from invoices c where c.parent_invoice_id=$1 and c.document_type='correction' and c.status='issued' order by c.id desc limit 1",[source.id])).rows[0];
   if(correction){
@@ -605,7 +651,7 @@ app.post("/api/invoices/:id/corrections", requireRole("admin","finance"), asyncR
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const reason=String(req.body?.reason||"").trim().slice(0,1000);
   if(reason.length<3)return res.status(400).json({error:"correction reason is required"});
-  const source=(await pool.query("select i.*,s.order_no,s.customer_id from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
+  const source=(await pool.query("select i.*,s.order_no,s.customer_id from invoices i join sales s on s.id=i.sale_id where i.id=$1 and i.deleted_at is null and s.deleted_at is null and i.document_type in ('invoice','replacement')",[req.params.id])).rows[0];
   if(!source||source.status!=="issued")return res.status(409).json({error:"only an issued invoice can be corrected"});
   if((await pool.query("select 1 from invoices where parent_invoice_id=$1 and document_type in ('storno','cancellation') and status='issued'",[source.id])).rowCount)return res.status(409).json({error:"a voided invoice cannot be corrected"});
   const existing=(await pool.query("select * from invoices where parent_invoice_id=$1 and document_type='correction' order by id desc limit 1",[source.id])).rows[0];
@@ -639,16 +685,16 @@ app.get("/api/picking-sales", requireRole("admin","warehouse"), asyncRoute(async
   const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),datePattern=/^\d{4}-\d{2}-\d{2}$/;
   const validDate=value=>datePattern.test(value)&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
   if((startDate&&!validDate(startDate))||(endDate&&!validDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
-  const params=startDate||endDate?[businessTimezone]:[],filters=[];
+  const params=startDate||endDate?[businessTimezone]:[],filters=["s.deleted_at is null"];
   if(startDate){params.push(startDate);filters.push(`s.created_at >= ($${params.length}::date at time zone $1)`)}
   if(endDate){params.push(endDate);filters.push(`s.created_at < (($${params.length}::date + 1) at time zone $1)`)}
-  const where=filters.length?` where ${filters.join(" and ")}`:"",limit=filters.length?"":" limit 500";
+  const where=` where ${filters.join(" and ")}`,limit=startDate||endDate?"":" limit 500";
   const result=await pool.query(`select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
 
 app.get("/api/picking-sales/:id", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
-  const sale=await pool.query("select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1",[req.params.id]);
+  const sale=await pool.query("select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
   const items=await pool.query("select si.id,si.product_id,si.quantity,p.sku,p.barcode,p.name,p.name2 from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   res.json({...sale.rows[0],items:items.rows});
@@ -664,7 +710,7 @@ app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyn
   if(!validDate)return res.status(400).json({error:"invalid booking date"});
   const client=await pool.connect();
   try{await client.query("begin");
-    const sale=await client.query("select id,total,currency,settled from sales where id=$1 for update",[req.params.id]);
+    const sale=await client.query("select id,total,currency,settled from sales where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const total=Number(sale.rows[0].total);
     if(total<=0){const error=new Error("only sales with a positive total can receive payments");error.status=409;throw error}
@@ -691,7 +737,7 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
-    const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) for update",[items.map(item=>item.productId)]);
+    const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) and deleted_at is null for update",[items.map(item=>item.productId)]);
     if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
     const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
@@ -718,7 +764,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
   const client=await pool.connect();
   try{await client.query("begin");
     const settings=await getSystemSettings(client);
-    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const invoice=await client.query("select 1 from invoices where sale_id=$1 limit 1",[req.params.id]);
     if(invoice.rowCount){const error=new Error("sales with invoice records cannot be edited");error.status=409;throw error}
@@ -729,7 +775,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
     const oldItems=await client.query("select product_id,quantity from sale_items where sale_id=$1 order by product_id for update",[req.params.id]);
     const productIds=[...new Set([...oldItems.rows.map(item=>Number(item.product_id)),...items.map(item=>item.productId)])].sort((a,b)=>a-b);
     const productRows=[];
-    for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
+    for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 and deleted_at is null for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
     const productById=new Map(productRows.map(product=>[Number(product.id),product]));
     const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
     const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
@@ -747,6 +793,22 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
+app.delete("/api/sales/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 and deleted_at is null for update",[req.params.id]);
+    if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
+    if((await client.query("select 1 from invoices where sale_id=$1 limit 1",[req.params.id])).rowCount){const error=new Error("sales with ERP or Számlázz.hu invoice records cannot be deleted");error.status=409;throw error}
+    if(sale.rows[0].stock_deducted){
+      const settings=await getSystemSettings(client),lines=await client.query("select si.product_id,coalesce(sum(si.quantity),0)::int quantity,coalesce((select sum(sri.quantity) from sale_return_items sri join sale_returns sr on sr.id=sri.return_id join sale_items source on source.id=sri.sale_item_id where sr.sale_id=$1 and source.product_id=si.product_id),0)::int returned_quantity from sale_items si where si.sale_id=$1 group by si.product_id order by si.product_id",[req.params.id]);
+      for(const line of lines.rows){const delta=Number(line.quantity)-Number(line.returned_quantity);if(delta===0)continue;await client.query("select id from products where id=$1 for update",[line.product_id]);await client.query("update products set stock=stock+$1,updated_at=now() where id=$2",[delta,line.product_id]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale_delete',$4,$5)",[line.product_id,settings.default_warehouse,delta,sale.rows[0].order_no,req.user.username])}
+    }
+    await client.query("update sales set deleted_at=now(),deleted_by=$1 where id=$2",[req.user.username,req.params.id]);
+    await client.query("commit");res.json({id:Number(req.params.id)});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
+}));
+
 app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const requested=Array.isArray(body.items)?body.items.map(item=>({saleItemId:Number(item.saleItemId),quantity:Number(item.quantity)})).filter(item=>item.quantity>0):[];
@@ -756,7 +818,7 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
   const client=await pool.connect();
   try{await client.query("begin");
     const settings=await getSystemSettings(client);
-    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const saleItems=await client.query("select id,product_id,quantity,price from sale_items where sale_id=$1 for update",[req.params.id]);
     const returned=await client.query("select sri.sale_item_id,coalesce(sum(sri.quantity),0)::int quantity from sale_return_items sri join sale_returns sr on sr.id=sri.return_id where sr.sale_id=$1 group by sri.sale_item_id",[req.params.id]);
@@ -780,7 +842,7 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
   const client=await pool.connect();
   try{await client.query("begin");
     const settings=await getSystemSettings(client);
-    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 for update",[req.params.id]);
+    const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const stockChange=changes.find(([key])=>key==="stockDeducted");
     if(stockChange&&req.body[stockChange[0]]!==sale.rows[0].stock_deducted){
@@ -800,10 +862,10 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
 
 app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async (_req,res)=>{
   const [sales,returns,purchases,stock]=await Promise.all([
-    pool.query("select coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales"),
-    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id"),
-    pool.query("select coalesce(sum(total),0)::numeric total from purchases"),
-    pool.query("select coalesce(sum(stock),0)::int total from products"),
+    pool.query("select coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where deleted_at is null"),
+    pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where s.deleted_at is null"),
+    pool.query("select coalesce(sum(total),0)::numeric total from purchases where deleted_at is null"),
+    pool.query("select coalesce(sum(stock),0)::int total from products where deleted_at is null"),
   ]);
   const result={purchase_total:purchases.rows[0].total,stock_total:stock.rows[0].total};
   for(const currency of ["huf","eur","usd"])result[`sales_total_${currency}`]=Number(sales.rows[0][`total_${currency}`])-Number(returns.rows[0][`total_${currency}`]);

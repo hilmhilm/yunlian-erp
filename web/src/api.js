@@ -140,6 +140,7 @@ const normalizeSale = (sale) => ({
   invoiceId: Number(sale.invoice_id ?? sale.invoiceId) || null,
   invoiceStatus: sale.invoice_status ?? sale.invoiceStatus ?? "",
   invoiceNumber: sale.invoice_number ?? sale.invoiceNumber ?? "",
+  invoiceRecordDeleted: Boolean(sale.invoice_record_deleted ?? sale.invoiceRecordDeleted),
 });
 
 const normalizeInvoice = invoice => ({
@@ -169,6 +170,7 @@ const normalizeInvoice = invoice => ({
   buyerEmail: invoice.buyer_email ?? invoice.buyerEmail ?? "",
   createdAt: invoice.created_at ?? invoice.createdAt ?? null,
   issuedAt: invoice.issued_at ?? invoice.issuedAt ?? null,
+  erpDeleted: Boolean(invoice.deleted_at ?? invoice.erpDeleted),
 });
 
 const normalizeSaleDetail = (sale) => ({
@@ -263,6 +265,10 @@ export async function deleteCategoryImage(token, id) {
   }));
 }
 
+export async function deleteCategory(token, id) {
+  return request(`/categories/${id}`, { token, method: "DELETE" });
+}
+
 export async function createProduct(token, product) {
   const created = await request("/products", {
     token,
@@ -308,6 +314,10 @@ export async function deleteProductImage(token, id) {
   }));
 }
 
+export async function deleteProduct(token, id) {
+  return request(`/products/${id}`, { token, method: "DELETE" });
+}
+
 export async function fetchCustomers(token, search = "") {
   const customers = await request(`/customers?search=${encodeURIComponent(search)}`, { token });
   return customers.map(normalizeCustomer);
@@ -325,6 +335,10 @@ export async function updateCustomer(token, id, customer) {
   }));
 }
 
+export async function deleteCustomer(token, id) {
+  return request(`/customers/${id}`, { token, method: "DELETE" });
+}
+
 export async function fetchPurchases(token) {
   return (await request("/purchases", { token })).map(normalizePurchase);
 }
@@ -333,6 +347,10 @@ export async function createPurchase(token, purchase) {
   return normalizePurchase(await request("/purchases", {
     token, method: "POST", body: JSON.stringify(purchase),
   }));
+}
+
+export async function deletePurchase(token, id) {
+  return request(`/purchases/${id}`, { token, method: "DELETE" });
 }
 
 export async function fetchSales(token, { startDate = "", endDate = "" } = {}) {
@@ -368,6 +386,10 @@ export async function updateSale(token, saleId, sale) {
   }));
 }
 
+export async function deleteSale(token, saleId) {
+  return request(`/sales/${saleId}`, { token, method: "DELETE" });
+}
+
 export async function fetchSale(token, id) {
   return normalizeSaleDetail(await request(`/sales/${id}`, { token }));
 }
@@ -391,6 +413,10 @@ export async function fetchInvoices(token) {
 export async function fetchInvoice(token, invoiceId) {
   const invoice=normalizeInvoice(await request(`/invoices/${invoiceId}`,{token}));
   return {...invoice,items:(invoice.items||[]).map(item=>({...item,id:Number(item.id),quantity:Number(item.quantity),netUnitPrice:Number(item.net_unit_price??item.netUnitPrice??0)})),related:(invoice.related||[]).map(normalizeInvoice)};
+}
+
+export async function deleteInvoice(token, invoiceId) {
+  return request(`/invoices/${invoiceId}`, { token, method: "DELETE" });
 }
 
 export async function createInvoice(token, saleId, invoice) {
