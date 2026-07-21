@@ -318,6 +318,12 @@ export async function deleteProduct(token, id) {
   return request(`/products/${id}`, { token, method: "DELETE" });
 }
 
+export async function deleteProducts(token, ids) {
+  return request("/products/batch-delete", {
+    token, method: "DELETE", body: JSON.stringify({ ids }),
+  });
+}
+
 export async function fetchCustomers(token, search = "") {
   const customers = await request(`/customers?search=${encodeURIComponent(search)}`, { token });
   return customers.map(normalizeCustomer);

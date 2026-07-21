@@ -417,6 +417,21 @@ app.delete("/api/products/:id/image", requireRole("admin","purchasing","warehous
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
+app.delete("/api/products/batch-delete", requireRole("admin"), asyncRoute(async (req,res)=>{
+  const ids=[...new Set((Array.isArray(req.body?.ids)?req.body.ids:[]).map(Number))];
+  if(!ids.length||ids.length>500||ids.some(id=>!Number.isSafeInteger(id)||id<=0))return res.status(400).json({error:"select between 1 and 500 valid products"});
+  const client=await pool.connect();let imageUrls=[];
+  try{
+    await client.query("begin");
+    const products=await client.query("select id,image_url from products where id=any($1::bigint[]) and deleted_at is null order by id for update",[ids]);
+    if(products.rowCount!==ids.length){const error=new Error("one or more selected products do not exist or were already deleted");error.status=409;throw error}
+    imageUrls=products.rows.map(product=>product.image_url).filter(Boolean);
+    await client.query("update products set deleted_at=now(),deleted_by=$1,updated_at=now() where id=any($2::bigint[]) and deleted_at is null",[req.user.username,ids]);
+    await client.query("commit");
+    for(const imageUrl of imageUrls)if(imageUrl.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(imageUrl))).catch(()=>{});
+    res.json({ids,count:ids.length});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
+}));
 app.delete("/api/products/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
   const product=await pool.query("update products set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id,image_url",[req.user.username,req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
