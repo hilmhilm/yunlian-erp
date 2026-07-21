@@ -525,7 +525,7 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
 app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
   const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
-  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.unit,p.stock from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
+  const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.unit,p.stock,p.image_url from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   const payments=await pool.query("select id,amount,method,booked_on,category,note,created_by,created_at from sale_payments where sale_id=$1 order by created_at desc,id desc",[req.params.id]);
   const paidTotal=payments.rows.reduce((sum,payment)=>sum+Number(payment.amount),0);
   res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
