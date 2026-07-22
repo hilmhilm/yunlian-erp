@@ -33,6 +33,7 @@ app.use("/uploads", express.static(uploadDirectory, { maxAge: "7d", immutable: t
 const scrypt = promisify(crypto.scrypt);
 const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
 const currencies = new Set(["HUF","EUR","USD"]);
+const manualFinanceCategories={income:new Set(["other_income","capital_injection","interest_income","reimbursement_received"]),expense:new Set(["purchase_expense","freight_expense","operating_expense","salary_expense","tax_expense","other_expense"])};
 const loginAttempts = new Map();
 const loginWindowMs = 15 * 60 * 1000;
 const maxLoginAttempts = 5;
@@ -97,8 +98,8 @@ const auditMetadata=(path,method)=>{
   if(root==="sales"&&parts[2]==="invoice")return {module:"invoices",action:"issue_invoice",entityType:"sale",entityId:id};
   if(root==="invoices"&&parts[2]==="corrections")return {module:"invoices",action:"correct_invoice",entityType:"invoice",entityId:id};
   if(root==="invoices"&&parts[2]==="storno")return {module:"invoices",action:"void_invoice",entityType:"invoice",entityId:id};
-  const modules={settings:"system",users:"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices"};
-  const entities={settings:"settings",users:"user",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice"};
+  const modules={settings:"system",users:"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices","finance-transactions":"finance"};
+  const entities={settings:"settings",users:"user",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice","finance-transactions":"finance_transaction"};
   return {module:modules[root]||root,action:{POST:"create",PUT:"update",PATCH:"update",DELETE:"delete"}[method]||"change",entityType:entities[root]||root,entityId:id};
 };
 
@@ -155,6 +156,52 @@ app.use("/api",(req,res,next)=>{
 });
 
 app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role } }));
+
+app.get("/api/finance-transactions",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+  const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||"");
+  if((startDate&&!validIsoDate(startDate))||(endDate&&!validIsoDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
+  const result=await pool.query(`with ledger as (
+    select concat('sale_payment:',sp.id) row_key,sp.booked_on occurred_on,'income'::text direction,sp.category,
+      sp.method payment_method,s.currency,sp.amount::numeric amount,s.order_no reference_no,coalesce(c.name,'') counterparty,
+      sp.note,sp.created_by,sp.created_at,'sale_payment'::text source_type
+    from sale_payments sp join sales s on s.id=sp.sale_id left join customers c on c.id=s.customer_id
+    where s.deleted_at is null
+    union all
+    select concat('sale_return:',sr.id),(sr.created_at at time zone $1)::date,'expense','sales_refund','unspecified',
+      s.currency,abs(sr.total)::numeric,sr.return_no,coalesce(c.name,''),sr.reason,sr.created_by,sr.created_at,'sale_return'
+    from sale_returns sr join sales s on s.id=sr.sale_id left join customers c on c.id=s.customer_id
+    where s.deleted_at is null and sr.total<>0
+    union all
+    select concat('negative_sale:',s.id),(s.created_at at time zone $1)::date,'expense','sales_refund','unspecified',
+      s.currency,abs(s.total)::numeric,s.order_no,coalesce(c.name,''),s.notes,s.created_by,s.created_at,'negative_sale'
+    from sales s left join customers c on c.id=s.customer_id
+    where s.deleted_at is null and s.total<0
+    union all
+    select concat('manual:',ft.id),ft.occurred_on,ft.direction,ft.category,ft.payment_method,ft.currency,
+      ft.amount::numeric,''::text,''::text,ft.note,ft.created_by,ft.created_at,'manual'
+    from finance_transactions ft
+  ) select * from ledger
+    where ($2::date is null or occurred_on >= $2::date) and ($3::date is null or occurred_on <= $3::date)
+    order by occurred_on desc,created_at desc,row_key desc limit 5000`,[businessTimezone,startDate||null,endDate||null]);
+  const summary=Object.fromEntries([...currencies].map(currency=>[currency,{income:0,expense:0,net:0,cashIncome:0,cashExpense:0,cashNet:0,bankIncome:0,bankExpense:0,bankNet:0,unspecifiedExpense:0}]));
+  for(const row of result.rows){
+    const values=summary[row.currency],amount=Number(row.amount||0),income=row.direction==="income";
+    if(!values)continue;
+    values[income?"income":"expense"]+=amount;
+    if(row.payment_method==="cash")values[income?"cashIncome":"cashExpense"]+=amount;
+    else if(row.payment_method==="bank_transfer")values[income?"bankIncome":"bankExpense"]+=amount;
+    else if(!income)values.unspecifiedExpense+=amount;
+  }
+  for(const values of Object.values(summary)){values.net=values.income-values.expense;values.cashNet=values.cashIncome-values.cashExpense;values.bankNet=values.bankIncome-values.bankExpense}
+  res.json({rows:result.rows,summary});
+}));
+
+app.post("/api/finance-transactions",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+  const body=req.body||{},occurredOn=String(body.occurredOn||""),direction=String(body.direction||""),category=String(body.category||"").trim().slice(0,100),paymentMethod=String(body.paymentMethod||""),currency=String(body.currency||"").toUpperCase(),amount=Number(body.amount),note=String(body.note||"").trim().slice(0,1000);
+  if(!validIsoDate(occurredOn)||!manualFinanceCategories[direction]?.has(category)||!new Set(["cash","bank_transfer"]).has(paymentMethod)||!currencies.has(currency)||!Number.isFinite(amount)||amount<=0||amount>999999999999.99)return res.status(400).json({error:"invalid finance transaction"});
+  const result=await pool.query("insert into finance_transactions(occurred_on,direction,category,payment_method,currency,amount,note,created_by) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[occurredOn,direction,category,paymentMethod,currency,amount,note,req.user.username]);
+  res.status(201).json(result.rows[0]);
+}));
 
 app.get("/api/audit-logs",requireRole("admin"),asyncRoute(async(req,res)=>{
   const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),module=String(req.query.module||"").trim(),search=String(req.query.search||"").trim();

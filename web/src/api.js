@@ -471,6 +471,32 @@ export async function fetchReportSummary(token) {
   };
 }
 
+const normalizeFinanceTransaction = row => ({
+  ...row,
+  rowKey: row.row_key ?? row.rowKey,
+  occurredOn: row.occurred_on ?? row.occurredOn,
+  paymentMethod: row.payment_method ?? row.paymentMethod,
+  referenceNo: row.reference_no ?? row.referenceNo ?? "",
+  sourceType: row.source_type ?? row.sourceType,
+  createdBy: row.created_by ?? row.createdBy,
+  createdAt: row.created_at ?? row.createdAt,
+  amount: Number(row.amount || 0),
+});
+
+export async function fetchFinanceTransactions(token, { startDate = "", endDate = "" } = {}) {
+  const query=new URLSearchParams();
+  if(startDate)query.set("startDate",startDate);
+  if(endDate)query.set("endDate",endDate);
+  const data=await request(`/finance-transactions${query.size?`?${query}`:""}`,{token});
+  return {rows:(data.rows||[]).map(normalizeFinanceTransaction),summary:data.summary||{}};
+}
+
+export async function createFinanceTransaction(token, transaction) {
+  return normalizeFinanceTransaction(await request("/finance-transactions",{
+    token,method:"POST",body:JSON.stringify(transaction),
+  }));
+}
+
 export async function fetchUsers(token) {
   return (await request("/users", { token })).map(normalizeUser);
 }
