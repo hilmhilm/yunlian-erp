@@ -213,3 +213,7 @@
 - 报表 API 统一把 PostgreSQL 返回的字符串日期或 Date 对象转换为 `YYYY-MM-DD`，修复 NAS 环境打开报表时出现的 `a.date.localeCompare is not a function`。
 - 同时修正客户报表新增客户统计及趋势日期在 Date 对象返回模式下的兼容性。
 - 部署只需重建 `web` 和 `api`，没有新迁移、没有依赖变更。
+# 客户报表趋势 SQL 修复（UI 2026.07.22-5）
+
+- 客户报表的日期序列字段由 PostgreSQL 关键字 `day` 改为明确别名 `report_date`，并显式使用 `interval '1 day'`，修复打开客户报表时的 `syntax error at or near "day"`。
+- 部署只需重建 `web` 和 `api`，没有新迁移、没有依赖变更。
