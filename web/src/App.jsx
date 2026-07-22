@@ -14,8 +14,8 @@ import {
   login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateCustomer as updateCustomerRequest, updateProduct as updateProductRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleNotes as updateSaleNotesRequest, updateSaleStatus as updateSaleStatusRequest, updateSettings as updateSettingsRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
-const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", sales: "salesList", pickingLists: "pickingList", pickingNote: "pickingList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", orderFinance: "orderFinance", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", users: "employeeManagement", auditLogs: "auditLogs", settings: "settings" };
-const pageTargets = { scanSales: "pos", orderFinance: "reports" };
+const pageNames = { dashboard: "dashboard", products: "products", purchases: "purchase", inventory: "inventory", categories: "categories", customers: "customerList", sales: "salesList", pickingLists: "pickingList", pickingNote: "pickingList", scanSales: "scanSales", collectorSales: "collectorSales", saleSettlement: "orderSettlement", deliveryNote: "deliveryNote", flowDetails: "flowDetails", invoiceList: "invoiceList", issueInvoice: "issueInvoice", reports: "reports", users: "employeeManagement", auditLogs: "auditLogs", settings: "settings" };
+const pageTargets = { scanSales: "pos" };
 const roleOptions = ["admin","purchasing","warehouse","sales","finance"];
 const pageRoles = {
   purchases: ["admin","purchasing","warehouse","finance"],
@@ -29,7 +29,7 @@ const menu = [
   { labelKey: "goods", icon: Boxes, children: [{ id: "products", labelKey: "products" }, { id: "purchases", labelKey: "purchase" }, { id: "inventory", labelKey: "inventory" }, { id: "categories", labelKey: "categories" }] },
   { labelKey: "customers", icon: Users, children: [{ id: "customers", labelKey: "customerList" }] },
   { labelKey: "sales", icon: ShoppingCart, children: [{ id: "sales", labelKey: "salesList" }, { id: "pickingLists", labelKey: "pickingList" }, { id: "scanSales", labelKey: "scanSales" }, { id: "collectorSales", labelKey: "collectorSales" }] },
-  { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "flowDetails", labelKey: "flowDetails" }, { id: "orderFinance", labelKey: "orderFinance" }] },
+  { labelKey: "finance", icon: CircleDollarSign, children: [{ id: "flowDetails", labelKey: "flowDetails" }] },
   { labelKey: "invoice", icon: FileText, children: [{ id: "invoiceList", labelKey: "invoiceList" }, { id: "issueInvoice", labelKey: "issueInvoice" }] },
   { id: "reports", labelKey: "reports", icon: FileBarChart },
   { id: "users", labelKey: "employeeManagement", icon: Users },
@@ -43,7 +43,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.22-1";
+const uiVersion = "2026.07.22-2";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
