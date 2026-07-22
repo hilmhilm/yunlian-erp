@@ -217,3 +217,8 @@
 
 - 客户报表的日期序列字段由 PostgreSQL 关键字 `day` 改为明确别名 `report_date`，并显式使用 `interval '1 day'`，修复打开客户报表时的 `syntax error at or near "day"`。
 - 部署只需重建 `web` 和 `api`，没有新迁移、没有依赖变更。
+# 客户报表参数修复（UI 2026.07.22-6）
+
+- 客户总数查询改用连续的 `$1/$2/$3` 参数，并只传入客户组、城市和客户三个筛选值，修复 PostgreSQL 的 `could not determine data type of parameter $1`。
+- 已检查其余三个报表查询，没有其他参数编号断档。
+- 部署只需重建 `web` 和 `api`，没有新迁移、没有依赖变更。
