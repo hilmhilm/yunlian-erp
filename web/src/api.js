@@ -471,6 +471,28 @@ export async function fetchReportSummary(token) {
   };
 }
 
+const numericReportFields=new Set(["amount","quantity","grossSales","refundAmount","netSales","paid","due","averageOrder","income","expense","net","cashIncome","cashExpense","cashNet","bankIncome","bankExpense","bankNet","orderCount","returnCount","totalCustomers","purchasingCustomers","newCustomers","repeatCustomers","paidAmount","dueAmount","new_customers","purchasing_customers"]);
+const normalizeReportRow=row=>Object.fromEntries(Object.entries(row||{}).map(([key,value])=>{
+  const camel=key.replace(/_([a-z])/g,(_,letter)=>letter.toUpperCase());
+  return [camel,numericReportFields.has(key)||numericReportFields.has(camel)?Number(value||0):value];
+}));
+
+export async function fetchBusinessReport(token,type,filters={}) {
+  const query=new URLSearchParams();
+  Object.entries(filters).forEach(([key,value])=>{if(value!==""&&value!==null&&value!==undefined)query.set(key,String(value))});
+  const data=await request(`/reports/${type}?${query}`,{token});
+  return {
+    ...data,
+    summary:normalizeReportRow(data.summary),
+    trend:(data.trend||[]).map(normalizeReportRow),
+    products:(data.products||[]).map(normalizeReportRow),
+    customers:(data.customers||[]).map(normalizeReportRow),
+    salespeople:(data.salespeople||[]).map(normalizeReportRow),
+    categories:(data.categories||[]).map(normalizeReportRow),
+    details:(data.details||[]).map(normalizeReportRow),
+  };
+}
+
 const normalizeFinanceTransaction = row => ({
   ...row,
   rowKey: row.row_key ?? row.rowKey,

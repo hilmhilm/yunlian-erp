@@ -222,6 +222,40 @@ Object.assign(messages.hu,{
   financeLedgerDescription:"Tényleges értékesítési bevételek, visszatérítések és kézi tételek, pénznemenként összesítve",addFinanceTransaction:"Bevétel / kiadás rögzítése",income:"Bevétel",expense:"Kiadás",netAmount:"Egyenleg",cashNet:"Készpénz egyenlege",bankNet:"Átutalás egyenlege",incomeTotal:"Összes bevétel",expenseTotal:"Összes kiadás",financeReason:"Jogcím",financeDate:"Dátum",financeAmount:"Összeg",currency:"Pénznem",financeSource:"Forrás",counterparty:"Partner",manualEntry:"Kézi tétel",salesPayment:"Értékesítési bevétel",salesRefund:"Értékesítési visszatérítés",negativeSaleRefund:"Negatív értékesítés visszatérítése",unspecified:"Nincs megadva",noFinanceTransactions:"Nincs pénzmozgás ebben az időszakban",financeTransactionSaved:"Pénzmozgás mentve",financeTransactionSaveFailed:"A pénzmozgás mentése sikertelen",invalidFinanceTransaction:"Válasszon dátumot, irányt, jogcímet, módot és pénznemet, majd adjon meg nullánál nagyobb összeget",incomeReason_other_income:"Egyéb bevétel",incomeReason_capital_injection:"Tőkebefizetés",incomeReason_interest_income:"Kamatbevétel",incomeReason_reimbursement_received:"Visszatérített költség",expenseReason_purchase_expense:"Beszerzési kiadás",expenseReason_freight_expense:"Szállítási költség",expenseReason_operating_expense:"Működési költség",expenseReason_salary_expense:"Bérköltség",expenseReason_tax_expense:"Adókiadás",expenseReason_other_expense:"Egyéb kiadás",paymentBreakdown:"Fizetési módok részletei",grossIncome:"Bevétel",grossExpense:"Kiadás",unassignedRefund:"Fizetési mód nélküli visszatérítés"
 });
 
+Object.assign(messages["zh-CN"],{
+  financeReport:"财务报表",customersReport:"客户报表",reportSummary:"报表汇总",reportDetails:"明细数据",metric:"指标",value:"数值",notEnoughTrendData:"当前筛选条件下暂无足够的趋势数据",
+  today:"今天",thisMonth:"本月",last30Days:"近30天",allSalespeople:"全部销售员",allCustomers:"全部客户",allProducts:"全部产品",allSettlementStatuses:"全部结算状态",allDirections:"全部收支类型",allFinanceReasons:"全部收支原因",allCustomerGroups:"全部客户组",allCities:"全部城市",
+  netSales:"净销售额",grossSales:"销售额",refundAmount:"退款额",salesOrderCount:"销售单数",netSalesQuantity:"净销售数量",averageOrderValue:"平均客单价",actualReceipts:"实际收款",outstandingBalance:"未收欠款",netCashFlow:"净现金流",
+  customerTotal:"客户总数",purchasingCustomers:"有购买客户",newCustomers:"新增客户",repeatCustomers:"复购客户",customerReportDetails:"客户报表详情",customerGroup:"客户组",
+  salesTrend:"销售趋势",salesTrendHelp:"按销售和退款实际发生日期统计",productSalesRanking:"产品销售排行",customerSalesRanking:"客户销售排行",salespersonRanking:"销售员业绩排行",
+  cashFlowTrend:"资金流水趋势",actualTransactionsByDate:"按实际收付款日期统计",incomeExpenseReasons:"收支原因构成",transactionVolume:"发生金额",
+  customerActivityTrend:"客户活跃趋势",newAndPurchasingCustomers:"新增客户与购买客户",customerDebtRanking:"客户欠款排行",
+  date:"日期",transactionType:"业务类型",incomeExpenseType:"收支类型",lastPurchaseDate:"最后购买日期",occurredOn:"发生日期",paymentMethod:"付款方式",referenceNo:"关联单号",sourceType:"来源类型",createdBy:"创建人",createdAt:"创建时间",rowKey:"明细编号",
+  sale:"销售",negative_sale:"负数销售",sale_return:"销售退款"
+});
+Object.assign(messages.en,{
+  financeReport:"Finance report",customersReport:"Customer report",reportSummary:"Report summary",reportDetails:"Detail data",metric:"Metric",value:"Value",notEnoughTrendData:"Not enough trend data for the current filters",
+  today:"Today",thisMonth:"This month",last30Days:"Last 30 days",allSalespeople:"All salespeople",allCustomers:"All customers",allProducts:"All products",allSettlementStatuses:"All settlement statuses",allDirections:"All directions",allFinanceReasons:"All reasons",allCustomerGroups:"All customer groups",allCities:"All cities",
+  netSales:"Net sales",grossSales:"Gross sales",refundAmount:"Refunds",salesOrderCount:"Sales orders",netSalesQuantity:"Net quantity",averageOrderValue:"Average order value",actualReceipts:"Actual receipts",outstandingBalance:"Outstanding balance",netCashFlow:"Net cash flow",
+  customerTotal:"Total customers",purchasingCustomers:"Purchasing customers",newCustomers:"New customers",repeatCustomers:"Repeat customers",customerReportDetails:"Customer report details",customerGroup:"Customer group",
+  salesTrend:"Sales trend",salesTrendHelp:"Sales and refunds are recognized on their occurrence dates",productSalesRanking:"Product sales ranking",customerSalesRanking:"Customer sales ranking",salespersonRanking:"Salesperson ranking",
+  cashFlowTrend:"Cash-flow trend",actualTransactionsByDate:"Based on actual receipt and payment dates",incomeExpenseReasons:"Income and expense reasons",transactionVolume:"Transaction volume",
+  customerActivityTrend:"Customer activity trend",newAndPurchasingCustomers:"New and purchasing customers",customerDebtRanking:"Customer outstanding ranking",
+  date:"Date",transactionType:"Transaction type",incomeExpenseType:"Direction",lastPurchaseDate:"Last purchase",occurredOn:"Occurred on",paymentMethod:"Payment method",referenceNo:"Reference",sourceType:"Source type",createdBy:"Created by",createdAt:"Created at",rowKey:"Detail ID",
+  sale:"Sale",negative_sale:"Negative sale",sale_return:"Sales return"
+});
+Object.assign(messages.hu,{
+  financeReport:"Pénzügyi jelentés",customersReport:"Vevői jelentés",reportSummary:"Jelentés összesítése",reportDetails:"Részletes adatok",metric:"Mutató",value:"Érték",notEnoughTrendData:"A jelenlegi szűréshez nincs elegendő trendadat",
+  today:"Ma",thisMonth:"Ez a hónap",last30Days:"Elmúlt 30 nap",allSalespeople:"Minden értékesítő",allCustomers:"Minden vevő",allProducts:"Minden termék",allSettlementStatuses:"Minden fizetési állapot",allDirections:"Minden irány",allFinanceReasons:"Minden jogcím",allCustomerGroups:"Minden vevőcsoport",allCities:"Minden város",
+  netSales:"Nettó értékesítés",grossSales:"Bruttó értékesítés",refundAmount:"Visszatérítés",salesOrderCount:"Értékesítések száma",netSalesQuantity:"Nettó mennyiség",averageOrderValue:"Átlagos kosárérték",actualReceipts:"Tényleges bevétel",outstandingBalance:"Fennálló tartozás",netCashFlow:"Nettó pénzforgalom",
+  customerTotal:"Összes vevő",purchasingCustomers:"Vásárló vevők",newCustomers:"Új vevők",repeatCustomers:"Visszatérő vevők",customerReportDetails:"Vevői jelentés részletei",customerGroup:"Vevőcsoport",
+  salesTrend:"Értékesítési trend",salesTrendHelp:"Az értékesítés és visszatérítés a tényleges dátumán jelenik meg",productSalesRanking:"Termékforgalmi rangsor",customerSalesRanking:"Vevőforgalmi rangsor",salespersonRanking:"Értékesítői rangsor",
+  cashFlowTrend:"Pénzforgalmi trend",actualTransactionsByDate:"A tényleges bevételi és kiadási dátumok alapján",incomeExpenseReasons:"Bevételi és kiadási jogcímek",transactionVolume:"Forgalom",
+  customerActivityTrend:"Vevőaktivitási trend",newAndPurchasingCustomers:"Új és vásárló vevők",customerDebtRanking:"Vevőtartozások rangsora",
+  date:"Dátum",transactionType:"Tranzakció típusa",incomeExpenseType:"Irány",lastPurchaseDate:"Utolsó vásárlás",occurredOn:"Teljesítés napja",paymentMethod:"Fizetési mód",referenceNo:"Hivatkozás",sourceType:"Forrás típusa",createdBy:"Létrehozta",createdAt:"Létrehozva",rowKey:"Részletazonosító",
+  sale:"Értékesítés",negative_sale:"Negatív értékesítés",sale_return:"Értékesítési visszáru"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

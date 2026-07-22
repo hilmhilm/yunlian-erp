@@ -927,6 +927,85 @@ app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(asyn
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
+const reportQueryValues=req=>{
+  const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),currency=String(req.query.currency||"HUF").toUpperCase();
+  if(!validIsoDate(startDate)||!validIsoDate(endDate)||startDate>endDate||!currencies.has(currency)){const error=new Error("invalid report filters");error.status=400;throw error}
+  return {startDate,endDate,currency};
+};
+
+app.get("/api/reports/sales",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+  const {startDate,endDate,currency}=reportQueryValues(req),salesperson=String(req.query.salesperson||"").trim(),customerId=Number(req.query.customerId)||null,productId=Number(req.query.productId)||null,category=String(req.query.category||"").trim(),settlement=String(req.query.settlement||"").trim();
+  if(settlement&&!new Set(["unpaid","partial","paid"]).has(settlement))return res.status(400).json({error:"invalid settlement filter"});
+  const params=[businessTimezone,startDate,endDate,currency,salesperson||null,customerId,productId,category||null,settlement||null];
+  const eventSql=`with sale_paid as (select sale_id,coalesce(sum(amount),0)::numeric paid from sale_payments group by sale_id),events as (
+    select concat('sale:',si.id) row_key,(s.created_at at time zone $1)::date occurred_on,
+      case when si.quantity<0 then 'negative_sale' else 'sale' end event_type,s.id sale_id,s.order_no reference_no,
+      s.currency,s.created_by salesperson,s.customer_id,coalesce(c.name,'') customer,p.id product_id,p.sku,p.name product_name,p.category,
+      si.quantity::int quantity,(si.quantity*si.price)::numeric amount,s.created_at
+    from sale_items si join sales s on s.id=si.sale_id join products p on p.id=si.product_id left join customers c on c.id=s.customer_id left join sale_paid sp on sp.sale_id=s.id
+    where s.deleted_at is null and s.created_at >= ($2::date at time zone $1) and s.created_at < (($3::date+1) at time zone $1)
+      and s.currency=$4 and ($5::text is null or s.created_by=$5) and ($6::bigint is null or s.customer_id=$6)
+      and ($7::bigint is null or p.id=$7) and ($8::text is null or p.category=$8)
+      and ($9::text is null or case when coalesce(sp.paid,0)<=0 then 'unpaid' when coalesce(sp.paid,0)>=greatest(s.total,0) then 'paid' else 'partial' end=$9)
+    union all
+    select concat('return:',sri.id),(sr.created_at at time zone $1)::date,'sale_return',s.id,sr.return_no,
+      s.currency,s.created_by,s.customer_id,coalesce(c.name,''),p.id,p.sku,p.name,p.category,
+      -sri.quantity::int,(-sri.quantity*sri.price)::numeric,sr.created_at
+    from sale_return_items sri join sale_returns sr on sr.id=sri.return_id join sales s on s.id=sr.sale_id join products p on p.id=sri.product_id left join customers c on c.id=s.customer_id left join sale_paid sp on sp.sale_id=s.id
+    where s.deleted_at is null and sr.created_at >= ($2::date at time zone $1) and sr.created_at < (($3::date+1) at time zone $1)
+      and s.currency=$4 and ($5::text is null or s.created_by=$5) and ($6::bigint is null or s.customer_id=$6)
+      and ($7::bigint is null or p.id=$7) and ($8::text is null or p.category=$8)
+      and ($9::text is null or case when coalesce(sp.paid,0)<=0 then 'unpaid' when coalesce(sp.paid,0)>=greatest(s.total,0) then 'paid' else 'partial' end=$9)
+  ) select * from events order by occurred_on desc,created_at desc,row_key desc`;
+  const [eventResult,settlementResult,salespeopleResult]=await Promise.all([
+    pool.query(eventSql,params),
+    pool.query(`with selected as (select s.id,s.total from sales s where s.deleted_at is null and s.created_at >= ($2::date at time zone $1) and s.created_at < (($3::date+1) at time zone $1) and s.currency=$4 and ($5::text is null or s.created_by=$5) and ($6::bigint is null or s.customer_id=$6) and ($7::bigint is null or exists(select 1 from sale_items si where si.sale_id=s.id and si.product_id=$7)) and ($8::text is null or exists(select 1 from sale_items si join products p on p.id=si.product_id where si.sale_id=s.id and p.category=$8)) and ($9::text is null or case when coalesce((select sum(sp.amount) from sale_payments sp where sp.sale_id=s.id),0)<=0 then 'unpaid' when coalesce((select sum(sp.amount) from sale_payments sp where sp.sale_id=s.id),0)>=greatest(s.total,0) then 'paid' else 'partial' end=$9)), paid as (select sp.sale_id,sum(sp.amount)::numeric amount from sale_payments sp join selected s on s.id=sp.sale_id group by sp.sale_id) select coalesce(sum(paid.amount),0)::numeric paid,coalesce(sum(greatest(selected.total-coalesce(paid.amount,0),0)),0)::numeric due from selected left join paid on paid.sale_id=selected.id`,params),
+    pool.query("select distinct created_by from sales where deleted_at is null order by created_by")
+  ]);
+  const events=eventResult.rows,summary={grossSales:0,refundAmount:0,netSales:0,netQuantity:0,orderCount:0,returnCount:0,paid:Number(settlementResult.rows[0].paid),due:Number(settlementResult.rows[0].due),averageOrder:0},orders=new Set(),returns=new Set(),trend=new Map(),productsMap=new Map(),customersMap=new Map(),salespeopleMap=new Map(),detailMap=new Map();
+  for(const row of events){const amount=Number(row.amount),quantity=Number(row.quantity),isReturn=amount<0;summary.netSales+=amount;summary.netQuantity+=quantity;if(isReturn){summary.refundAmount+=Math.abs(amount);returns.add(row.reference_no)}else{summary.grossSales+=amount;orders.add(row.sale_id)}const day=trend.get(row.occurred_on)||{date:row.occurred_on,amount:0,quantity:0};day.amount+=amount;day.quantity+=quantity;trend.set(row.occurred_on,day);const product=productsMap.get(row.product_id)||{id:Number(row.product_id),sku:row.sku,name:row.product_name,category:row.category,amount:0,quantity:0};product.amount+=amount;product.quantity+=quantity;productsMap.set(row.product_id,product);for(const [map,key,label] of [[customersMap,row.customer_id,row.customer||"—"],[salespeopleMap,row.salesperson,row.salesperson]]){if(key===null||key===undefined)continue;const item=map.get(String(key))||{id:key,name:label,amount:0,quantity:0};item.amount+=amount;item.quantity+=quantity;map.set(String(key),item)}const detailKey=`${row.event_type}:${row.reference_no}`,detail=detailMap.get(detailKey)||{id:detailKey,date:row.occurred_on,type:row.event_type,referenceNo:row.reference_no,saleId:Number(row.sale_id),customer:row.customer,salesperson:row.salesperson,amount:0,quantity:0};detail.amount+=amount;detail.quantity+=quantity;detailMap.set(detailKey,detail)}
+  summary.orderCount=orders.size;summary.returnCount=returns.size;summary.averageOrder=summary.orderCount?summary.grossSales/summary.orderCount:0;
+  const ranked=map=>[...map.values()].sort((a,b)=>b.amount-a.amount).slice(0,10);
+  res.json({currency,summary,trend:[...trend.values()].sort((a,b)=>a.date.localeCompare(b.date)),products:ranked(productsMap),customers:ranked(customersMap),salespeople:ranked(salespeopleMap),details:[...detailMap.values()].sort((a,b)=>b.date.localeCompare(a.date)),meta:{salespeople:salespeopleResult.rows.map(row=>row.created_by)}});
+}));
+
+app.get("/api/reports/finance",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+  const {startDate,endDate,currency}=reportQueryValues(req),method=String(req.query.method||""),direction=String(req.query.direction||""),category=String(req.query.category||"");
+  if(method&&!new Set(["cash","bank_transfer","unspecified"]).has(method)||direction&&!new Set(["income","expense"]).has(direction))return res.status(400).json({error:"invalid finance report filters"});
+  const result=await pool.query(`with ledger as (
+    select concat('sale_payment:',sp.id) row_key,sp.booked_on occurred_on,'income'::text direction,sp.category,sp.method payment_method,s.currency,sp.amount::numeric amount,s.order_no reference_no,coalesce(c.name,'') counterparty,sp.note,sp.created_by,'sale_payment'::text source_type
+    from sale_payments sp join sales s on s.id=sp.sale_id left join customers c on c.id=s.customer_id where s.deleted_at is null
+    union all select concat('sale_return:',sr.id),(sr.created_at at time zone $1)::date,'expense','sales_refund','unspecified',s.currency,abs(sr.total)::numeric,sr.return_no,coalesce(c.name,''),sr.reason,sr.created_by,'sale_return'
+    from sale_returns sr join sales s on s.id=sr.sale_id left join customers c on c.id=s.customer_id where s.deleted_at is null and sr.total<>0
+    union all select concat('negative_sale:',s.id),(s.created_at at time zone $1)::date,'expense','sales_refund','unspecified',s.currency,abs(s.total)::numeric,s.order_no,coalesce(c.name,''),s.notes,s.created_by,'negative_sale'
+    from sales s left join customers c on c.id=s.customer_id where s.deleted_at is null and s.total<0
+    union all select concat('manual:',ft.id),ft.occurred_on,ft.direction,ft.category,ft.payment_method,ft.currency,ft.amount::numeric,''::text,''::text,ft.note,ft.created_by,'manual'
+    from finance_transactions ft
+  ) select * from ledger where occurred_on between $2::date and $3::date and currency=$4 and ($5::text is null or payment_method=$5) and ($6::text is null or direction=$6) and ($7::text is null or category=$7) order by occurred_on desc,row_key desc`,[businessTimezone,startDate,endDate,currency,method||null,direction||null,category||null]);
+  const rows=result.rows,summary={income:0,expense:0,net:0,cashIncome:0,cashExpense:0,cashNet:0,bankIncome:0,bankExpense:0,bankNet:0},trend=new Map(),categoryMap=new Map();
+  for(const row of rows){const amount=Number(row.amount),income=row.direction==="income";summary[income?"income":"expense"]+=amount;if(row.payment_method==="cash")summary[income?"cashIncome":"cashExpense"]+=amount;if(row.payment_method==="bank_transfer")summary[income?"bankIncome":"bankExpense"]+=amount;const day=trend.get(row.occurred_on)||{date:row.occurred_on,income:0,expense:0,net:0};day[income?"income":"expense"]+=amount;trend.set(row.occurred_on,day);const item=categoryMap.get(row.category)||{category:row.category,income:0,expense:0,net:0};item[income?"income":"expense"]+=amount;categoryMap.set(row.category,item)}
+  summary.net=summary.income-summary.expense;summary.cashNet=summary.cashIncome-summary.cashExpense;summary.bankNet=summary.bankIncome-summary.bankExpense;for(const row of trend.values())row.net=row.income-row.expense;for(const row of categoryMap.values())row.net=row.income-row.expense;
+  res.json({currency,summary,trend:[...trend.values()].sort((a,b)=>a.date.localeCompare(b.date)),categories:[...categoryMap.values()].sort((a,b)=>(b.income+b.expense)-(a.income+a.expense)),details:rows});
+}));
+
+app.get("/api/reports/customers",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+  const {startDate,endDate,currency}=reportQueryValues(req),group=String(req.query.group||"").trim(),city=String(req.query.city||"").trim(),customerId=Number(req.query.customerId)||null;
+  const params=[businessTimezone,startDate,endDate,currency,group||null,city||null,customerId];
+  const rows=await pool.query(`with selected_customers as (select * from customers c where c.deleted_at is null and ($5::text is null or c.customer_group=$5) and ($6::text is null or c.city=$6) and ($7::bigint is null or c.id=$7)),orders as (
+    select s.customer_id,count(*)::int order_count,coalesce(sum(s.total),0)::numeric gross_sales,coalesce(sum((select sum(si.quantity) from sale_items si where si.sale_id=s.id)),0)::int quantity
+    from sales s join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and s.created_at >= ($2::date at time zone $1) and s.created_at < (($3::date+1) at time zone $1) group by s.customer_id
+  ),returns as (select s.customer_id,coalesce(sum(sr.total),0)::numeric refund_amount from sale_returns sr join sales s on s.id=sr.sale_id join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and sr.created_at >= ($2::date at time zone $1) and sr.created_at < (($3::date+1) at time zone $1) group by s.customer_id),payments as (
+    select s.customer_id,coalesce(sum(sp.amount),0)::numeric paid_amount from sale_payments sp join sales s on s.id=sp.sale_id join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and sp.booked_on between $2::date and $3::date group by s.customer_id
+  ),due as (select s.customer_id,coalesce(sum(greatest(s.total-coalesce((select sum(sp.amount) from sale_payments sp where sp.sale_id=s.id),0),0)),0)::numeric due_amount from sales s join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and s.created_at >= ($2::date at time zone $1) and s.created_at < (($3::date+1) at time zone $1) group by s.customer_id),last_orders as (select customer_id,max(created_at) last_order_at from sales where deleted_at is null group by customer_id)
+    select c.id,c.name,c.customer_group,c.city,c.country,c.created_at,(c.created_at at time zone $1)::date created_on,coalesce(o.order_count,0)::int order_count,coalesce(o.gross_sales,0)::numeric gross_sales,coalesce(r.refund_amount,0)::numeric refund_amount,(coalesce(o.gross_sales,0)-coalesce(r.refund_amount,0))::numeric net_sales,coalesce(o.quantity,0)::int quantity,coalesce(p.paid_amount,0)::numeric paid_amount,coalesce(d.due_amount,0)::numeric due_amount,l.last_order_at
+    from selected_customers c left join orders o on o.customer_id=c.id left join returns r on r.customer_id=c.id left join payments p on p.customer_id=c.id left join due d on d.customer_id=c.id left join last_orders l on l.customer_id=c.id
+    where coalesce(o.order_count,0)>0 or coalesce(p.paid_amount,0)>0 or c.created_at >= ($2::date at time zone $1) and c.created_at < (($3::date+1) at time zone $1) order by net_sales desc,c.name`,params);
+  const trend=await pool.query(`with days as (select generate_series($2::date,$3::date,'1 day')::date day) select days.day date,(select count(*)::int from customers c where c.deleted_at is null and (c.created_at at time zone $1)::date=days.day and ($5::text is null or c.customer_group=$5) and ($6::text is null or c.city=$6) and ($7::bigint is null or c.id=$7)) new_customers,(select count(distinct s.customer_id)::int from sales s join customers c on c.id=s.customer_id where s.deleted_at is null and c.deleted_at is null and s.currency=$4 and (s.created_at at time zone $1)::date=days.day and ($5::text is null or c.customer_group=$5) and ($6::text is null or c.city=$6) and ($7::bigint is null or c.id=$7)) purchasing_customers from days order by days.day`,params);
+  const allCount=await pool.query("select count(*)::int count from customers where deleted_at is null and ($5::text is null or customer_group=$5) and ($6::text is null or city=$6) and ($7::bigint is null or id=$7)",params);
+  const data=rows.rows.map(row=>({...row,order_count:Number(row.order_count),gross_sales:Number(row.gross_sales),refund_amount:Number(row.refund_amount),net_sales:Number(row.net_sales),quantity:Number(row.quantity),paid_amount:Number(row.paid_amount),due_amount:Number(row.due_amount)})),summary={totalCustomers:Number(allCount.rows[0].count),purchasingCustomers:data.filter(row=>row.order_count>0).length,newCustomers:data.filter(row=>String(row.created_on)>=startDate&&String(row.created_on)<=endDate).length,repeatCustomers:data.filter(row=>row.order_count>=2).length,netSales:data.reduce((sum,row)=>sum+row.net_sales,0),paid:data.reduce((sum,row)=>sum+row.paid_amount,0),due:data.reduce((sum,row)=>sum+row.due_amount,0)};
+  res.json({currency,summary,trend:trend.rows,customers:data,meta:{groups:(await pool.query("select distinct customer_group value from customers where deleted_at is null and customer_group<>'' order by value")).rows.map(row=>row.value),cities:(await pool.query("select distinct city value from customers where deleted_at is null and city<>'' order by value")).rows.map(row=>row.value)}});
+}));
+
 app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async (_req,res)=>{
   const [sales,returns,purchases,stock]=await Promise.all([
     pool.query("select coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where deleted_at is null"),
