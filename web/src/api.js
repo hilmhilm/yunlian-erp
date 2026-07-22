@@ -487,7 +487,6 @@ export async function fetchBusinessReport(token,type,filters={}) {
     trend:(data.trend||[]).map(normalizeReportRow),
     products:(data.products||[]).map(normalizeReportRow),
     customers:(data.customers||[]).map(normalizeReportRow),
-    salespeople:(data.salespeople||[]).map(normalizeReportRow),
     categories:(data.categories||[]).map(normalizeReportRow),
     details:(data.details||[]).map(normalizeReportRow),
   };

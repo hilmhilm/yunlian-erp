@@ -256,6 +256,10 @@ Object.assign(messages.hu,{
   sale:"Értékesítés",negative_sale:"Negatív értékesítés",sale_return:"Értékesítési visszáru"
 });
 
+Object.assign(messages["zh-CN"],{reportCustomerSearchPlaceholder:"输入至少3个字符搜索客户",reportProductSearchPlaceholder:"输入至少3个字符搜索货号、条码或产品名",reportLookupNoMatches:"没有包含这些字符的匹配条目"});
+Object.assign(messages.en,{reportCustomerSearchPlaceholder:"Enter at least 3 characters to find a customer",reportProductSearchPlaceholder:"Enter at least 3 characters to find a SKU, barcode or product",reportLookupNoMatches:"No matching entries contain these characters"});
+Object.assign(messages.hu,{reportCustomerSearchPlaceholder:"Adjon meg legalább 3 karaktert a vevő kereséséhez",reportProductSearchPlaceholder:"Adjon meg legalább 3 karaktert cikkszám, vonalkód vagy termék kereséséhez",reportLookupNoMatches:"Nincs ilyen karaktereket tartalmazó találat"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
