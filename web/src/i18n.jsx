@@ -268,6 +268,9 @@ Object.assign(messages.hu,{confirmDeleteUser:"Törli ezt a munkatársi fiókot? 
 Object.assign(messages["zh-CN"],{resetUserPassword:"重设密码",newPassword:"新密码",confirmNewPassword:"确认新密码",showPassword:"显示密码",resetPassword:"确认重设",passwordMinimumLength:"新密码至少需要 8 位",passwordsDoNotMatch:"两次输入的密码不一致",passwordResetFailed:"密码重设失败"});
 Object.assign(messages.en,{resetUserPassword:"Reset password",newPassword:"New password",confirmNewPassword:"Confirm new password",showPassword:"Show password",resetPassword:"Reset password",passwordMinimumLength:"The new password must be at least 8 characters",passwordsDoNotMatch:"The passwords do not match",passwordResetFailed:"Could not reset password"});
 Object.assign(messages.hu,{resetUserPassword:"Jelszó visszaállítása",newPassword:"Új jelszó",confirmNewPassword:"Új jelszó megerősítése",showPassword:"Jelszó megjelenítése",resetPassword:"Jelszó visszaállítása",passwordMinimumLength:"Az új jelszónak legalább 8 karakteresnek kell lennie",passwordsDoNotMatch:"A jelszavak nem egyeznek",passwordResetFailed:"A jelszó visszaállítása sikertelen"});
+Object.assign(messages["zh-CN"],{pickingNote:"配货单"});
+Object.assign(messages.en,{pickingNote:"Picking list"});
+Object.assign(messages.hu,{pickingNote:"Komissiózási lista"});
 
 const LocaleContext = createContext(null);
 
