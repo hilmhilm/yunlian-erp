@@ -278,6 +278,9 @@ Object.assign(messages.hu,{storageLocation:"Raktárhely",editStorageLocation:"Ra
 Object.assign(messages["zh-CN"],{storageWarehouse:"仓库",editWarehouse:"编辑仓库",clickToAddWarehouse:"点击添加仓库"});
 Object.assign(messages.en,{storageWarehouse:"Warehouse",editWarehouse:"Edit warehouse",clickToAddWarehouse:"Click to add warehouse"});
 Object.assign(messages.hu,{storageWarehouse:"Raktár",editWarehouse:"Raktár szerkesztése",clickToAddWarehouse:"Kattintson a raktár megadásához"});
+Object.assign(messages["zh-CN"],{permissionInventoryLocations:"修改库存仓库和库位"});
+Object.assign(messages.en,{permissionInventoryLocations:"Edit inventory warehouse and storage location"});
+Object.assign(messages.hu,{permissionInventoryLocations:"Készletraktár és raktárhely módosítása"});
 
 const LocaleContext = createContext(null);
 

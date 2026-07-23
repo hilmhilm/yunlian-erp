@@ -304,6 +304,14 @@ export async function updateProduct(token, id, product) {
   }));
 }
 
+export async function updateInventoryLocation(token, id, location) {
+  return normalizeProduct(await request(`/products/${id}/inventory-location`, {
+    token,
+    method: "PATCH",
+    body: JSON.stringify(location),
+  }));
+}
+
 export async function uploadProductImage(token, id, file) {
   return normalizeProduct(await request(`/products/${id}/image`, {
     token,

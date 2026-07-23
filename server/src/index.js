@@ -35,7 +35,7 @@ const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
 const configurableRoles = ["purchasing","warehouse","sales","finance"];
 const permissionKeys = [
   "page.dashboard","page.products","page.purchases","page.inventory","page.categories","page.customers","page.sales","page.pickingLists","page.scanSales","page.collectorSales","page.flowDetails","page.invoiceList","page.issueInvoice","page.reports","page.settings",
-  "products.manage","products.delete","products.images","products.export","categories.manage","categories.delete","categories.export","purchases.create","purchases.delete","customers.manage","customers.delete","sales.create","sales.edit","sales.delete","sales.status","sales.settle","sales.print","picking.print","invoices.issue","invoices.manage","invoices.delete","invoices.download","finance.create","reports.export","settings.manage",
+  "products.manage","products.delete","products.images","products.export","inventory.locations","categories.manage","categories.delete","categories.export","purchases.create","purchases.delete","customers.manage","customers.delete","sales.create","sales.edit","sales.delete","sales.status","sales.settle","sales.print","picking.print","invoices.issue","invoices.manage","invoices.delete","invoices.download","finance.create","reports.export","settings.manage",
 ];
 const permissionKeySet = new Set(permissionKeys);
 const currencies = new Set(["HUF","EUR","USD"]);
@@ -473,6 +473,15 @@ app.patch("/api/products/:id", requirePermission("products.manage"), asyncRoute(
   const category=b.category===undefined?null:String(b.category).trim();
   if(category&&!(await pool.query("select 1 from product_categories where name=$1 and deleted_at is null",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
   const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),cost=coalesce($9,cost),price=coalesce($10,price),price_eur=coalesce($11,price_eur),price_usd=coalesce($12,price_usd),storage_warehouse=coalesce($13,storage_warehouse),storage_location=coalesce($14,storage_location),updated_at=now() where id=$15 and deleted_at is null returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,cost,priceHuf,priceEur,priceUsd,warehouse,storageLocation,req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"product not found"});
+  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+  res.json({...result.rows[0],...statistics.rows[0]});
+}));
+app.patch("/api/products/:id/inventory-location", requirePermission("inventory.locations"), asyncRoute(async (req,res)=>{
+  const body=req.body||{},warehouse=String(body.warehouse??"").trim(),storageLocation=String(body.storageLocation??"").trim();
+  if(warehouse.length>200)return res.status(400).json({error:"warehouse is too long"});
+  if(storageLocation.length>200)return res.status(400).json({error:"storage location is too long"});
+  const result=await pool.query("update products set storage_warehouse=$1,storage_location=$2,updated_at=now() where id=$3 and deleted_at is null returning *",[warehouse,storageLocation,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
