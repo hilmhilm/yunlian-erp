@@ -275,6 +275,9 @@ Object.assign(messages.hu,{companyAddress:"Cég címe"});
 Object.assign(messages["zh-CN"],{storageLocation:"库位",editStorageLocation:"编辑库位",clickToAddStorageLocation:"点击添加库位",warehouseSupplier:"仓库/供货商",inventoryQuantity:"库存数量",boxQuantity:"箱数"});
 Object.assign(messages.en,{storageLocation:"Storage location",editStorageLocation:"Edit storage location",clickToAddStorageLocation:"Click to add storage location",warehouseSupplier:"Warehouse / supplier",inventoryQuantity:"Inventory quantity",boxQuantity:"Boxes"});
 Object.assign(messages.hu,{storageLocation:"Raktárhely",editStorageLocation:"Raktárhely szerkesztése",clickToAddStorageLocation:"Kattintson a raktárhely megadásához",warehouseSupplier:"Raktár / beszállító",inventoryQuantity:"Készletmennyiség",boxQuantity:"Dobozok"});
+Object.assign(messages["zh-CN"],{storageWarehouse:"仓库",editWarehouse:"编辑仓库",clickToAddWarehouse:"点击添加仓库"});
+Object.assign(messages.en,{storageWarehouse:"Warehouse",editWarehouse:"Edit warehouse",clickToAddWarehouse:"Click to add warehouse"});
+Object.assign(messages.hu,{storageWarehouse:"Raktár",editWarehouse:"Raktár szerkesztése",clickToAddWarehouse:"Kattintson a raktár megadásához"});
 
 const LocaleContext = createContext(null);
 

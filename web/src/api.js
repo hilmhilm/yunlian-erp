@@ -66,6 +66,7 @@ const normalizeProduct = (product) => ({
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
   imageUrl: product.image_url ?? product.imageUrl ?? "",
+  warehouse: product.storage_warehouse ?? product.warehouse ?? "",
   storageLocation: product.storage_location ?? product.storageLocation ?? "",
   movements: (product.movements || []).map(movement => ({
     ...movement,
