@@ -271,6 +271,7 @@ Object.assign(messages.hu,{resetUserPassword:"Jelszó visszaállítása",newPass
 Object.assign(messages["zh-CN"],{pickingNote:"配货单"});
 Object.assign(messages.en,{pickingNote:"Picking list"});
 Object.assign(messages.hu,{pickingNote:"Komissiózási lista"});
+Object.assign(messages.hu,{companyAddress:"Cég címe"});
 
 const LocaleContext = createContext(null);
 
