@@ -278,9 +278,12 @@ Object.assign(messages.hu,{storageLocation:"Raktárhely",editStorageLocation:"Ra
 Object.assign(messages["zh-CN"],{storageWarehouse:"仓库",editWarehouse:"编辑仓库",clickToAddWarehouse:"点击添加仓库"});
 Object.assign(messages.en,{storageWarehouse:"Warehouse",editWarehouse:"Edit warehouse",clickToAddWarehouse:"Click to add warehouse"});
 Object.assign(messages.hu,{storageWarehouse:"Raktár",editWarehouse:"Raktár szerkesztése",clickToAddWarehouse:"Kattintson a raktár megadásához"});
-Object.assign(messages["zh-CN"],{permissionInventoryLocations:"修改库存仓库和库位"});
-Object.assign(messages.en,{permissionInventoryLocations:"Edit inventory warehouse and storage location"});
-Object.assign(messages.hu,{permissionInventoryLocations:"Készletraktár és raktárhely módosítása"});
+Object.assign(messages["zh-CN"],{permissionInventoryLocations:"只修改库位",permissionInventoryEdit:"编辑库存数量和资料",editInventory:"编辑库存",invalidInventoryFields:"库存数量必须是整数，箱装数必须是正整数，单位不能为空",inventorySaveFailed:"库存保存失败",inventoryAdjustmentNote:"修改库存数量时，系统会按新旧数量的差额自动生成盘点调整流水。"});
+Object.assign(messages.en,{permissionInventoryLocations:"Edit storage location only",permissionInventoryEdit:"Edit inventory quantity and details",editInventory:"Edit inventory",invalidInventoryFields:"Stock must be an integer, box size must be a positive integer, and unit is required",inventorySaveFailed:"Could not save inventory",inventoryAdjustmentNote:"Changing stock creates an inventory-adjustment movement for the difference between the old and new quantities."});
+Object.assign(messages.hu,{permissionInventoryLocations:"Csak a raktárhely módosítása",permissionInventoryEdit:"Készletmennyiség és adatok szerkesztése",editInventory:"Készlet szerkesztése",invalidInventoryFields:"A készlet egész szám, a dobozméret pozitív egész szám legyen, az egység megadása kötelező",inventorySaveFailed:"A készlet mentése sikertelen",inventoryAdjustmentNote:"A készletmennyiség módosításakor a rendszer a régi és az új érték különbségéről készletkorrekciós mozgást hoz létre."});
+Object.assign(messages["zh-CN"],{movement_inventory_adjustment:"盘点调整"});
+Object.assign(messages.en,{movement_inventory_adjustment:"Inventory adjustment"});
+Object.assign(messages.hu,{movement_inventory_adjustment:"Készletkorrekció"});
 
 const LocaleContext = createContext(null);
 

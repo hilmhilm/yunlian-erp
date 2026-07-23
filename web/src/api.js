@@ -304,11 +304,19 @@ export async function updateProduct(token, id, product) {
   }));
 }
 
-export async function updateInventoryLocation(token, id, location) {
+export async function updateInventory(token, id, inventory) {
+  return normalizeProduct(await request(`/products/${id}/inventory`, {
+    token,
+    method: "PATCH",
+    body: JSON.stringify(inventory),
+  }));
+}
+
+export async function updateInventoryLocation(token, id, storageLocation) {
   return normalizeProduct(await request(`/products/${id}/inventory-location`, {
     token,
     method: "PATCH",
-    body: JSON.stringify(location),
+    body: JSON.stringify({ storageLocation }),
   }));
 }
 

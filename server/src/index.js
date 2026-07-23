@@ -35,7 +35,7 @@ const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
 const configurableRoles = ["purchasing","warehouse","sales","finance"];
 const permissionKeys = [
   "page.dashboard","page.products","page.purchases","page.inventory","page.categories","page.customers","page.sales","page.pickingLists","page.scanSales","page.collectorSales","page.flowDetails","page.invoiceList","page.issueInvoice","page.reports","page.settings",
-  "products.manage","products.delete","products.images","products.export","inventory.locations","categories.manage","categories.delete","categories.export","purchases.create","purchases.delete","customers.manage","customers.delete","sales.create","sales.edit","sales.delete","sales.status","sales.settle","sales.print","picking.print","invoices.issue","invoices.manage","invoices.delete","invoices.download","finance.create","reports.export","settings.manage",
+  "products.manage","products.delete","products.images","products.export","inventory.locations","inventory.edit","categories.manage","categories.delete","categories.export","purchases.create","purchases.delete","customers.manage","customers.delete","sales.create","sales.edit","sales.delete","sales.status","sales.settle","sales.print","picking.print","invoices.issue","invoices.manage","invoices.delete","invoices.download","finance.create","reports.export","settings.manage",
 ];
 const permissionKeySet = new Set(permissionKeys);
 const currencies = new Set(["HUF","EUR","USD"]);
@@ -477,11 +477,30 @@ app.patch("/api/products/:id", requirePermission("products.manage"), asyncRoute(
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
-app.patch("/api/products/:id/inventory-location", requirePermission("inventory.locations"), asyncRoute(async (req,res)=>{
-  const body=req.body||{},warehouse=String(body.warehouse??"").trim(),storageLocation=String(body.storageLocation??"").trim();
+app.patch("/api/products/:id/inventory", requirePermission("inventory.edit"), asyncRoute(async (req,res)=>{
+  const body=req.body||{},stock=Number(body.stock),boxSize=Number(body.boxSize),unit=String(body.unit??"").trim(),warehouse=String(body.warehouse??"").trim(),storageLocation=String(body.storageLocation??"").trim();
+  if(!Number.isSafeInteger(stock))return res.status(400).json({error:"stock must be an integer"});
+  if(!Number.isSafeInteger(boxSize)||boxSize<=0)return res.status(400).json({error:"box size must be a positive integer"});
+  if(!unit||unit.length>100)return res.status(400).json({error:"invalid product unit"});
   if(warehouse.length>200)return res.status(400).json({error:"warehouse is too long"});
   if(storageLocation.length>200)return res.status(400).json({error:"storage location is too long"});
-  const result=await pool.query("update products set storage_warehouse=$1,storage_location=$2,updated_at=now() where id=$3 and deleted_at is null returning *",[warehouse,storageLocation,req.params.id]);
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    const current=await client.query("select stock from products where id=$1 and deleted_at is null for update",[req.params.id]);
+    if(!current.rowCount){await client.query("rollback");return res.status(404).json({error:"product not found"})}
+    const delta=stock-Number(current.rows[0].stock);
+    const result=await client.query("update products set stock=$1,box_size=$2,unit=$3,storage_warehouse=$4,storage_location=$5,updated_at=now() where id=$6 returning *",[stock,boxSize,unit,warehouse,storageLocation,req.params.id]);
+    if(delta!==0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'inventory_adjustment',$4,$5)",[req.params.id,warehouse||"主仓库",delta,`INV-ADJ-${crypto.randomUUID().slice(0,8)}`,req.user.username]);
+    const statistics=await client.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+    await client.query("commit");
+    res.json({...result.rows[0],...statistics.rows[0]});
+  }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
+}));
+app.patch("/api/products/:id/inventory-location", requirePermission("inventory.locations"), asyncRoute(async (req,res)=>{
+  const storageLocation=String(req.body?.storageLocation??"").trim();
+  if(storageLocation.length>200)return res.status(400).json({error:"storage location is too long"});
+  const result=await pool.query("update products set storage_location=$1,updated_at=now() where id=$2 and deleted_at is null returning *",[storageLocation,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
