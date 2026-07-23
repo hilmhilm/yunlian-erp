@@ -32,6 +32,12 @@ app.use("/uploads", express.static(uploadDirectory, { maxAge: "7d", immutable: t
 
 const scrypt = promisify(crypto.scrypt);
 const roles = new Set(["admin", "purchasing", "warehouse", "sales", "finance"]);
+const configurableRoles = ["purchasing","warehouse","sales","finance"];
+const permissionKeys = [
+  "page.dashboard","page.products","page.purchases","page.inventory","page.categories","page.customers","page.sales","page.pickingLists","page.scanSales","page.collectorSales","page.flowDetails","page.invoiceList","page.issueInvoice","page.reports","page.settings",
+  "products.manage","products.delete","products.images","products.export","categories.manage","categories.delete","categories.export","purchases.create","purchases.delete","customers.manage","customers.delete","sales.create","sales.edit","sales.delete","sales.status","sales.settle","sales.print","picking.print","invoices.issue","invoices.manage","invoices.delete","invoices.download","finance.create","reports.export","settings.manage",
+];
+const permissionKeySet = new Set(permissionKeys);
 const currencies = new Set(["HUF","EUR","USD"]);
 const manualFinanceCategories={income:new Set(["other_income","capital_injection","interest_income","reimbursement_received"]),expense:new Set(["purchase_expense","freight_expense","operating_expense","salary_expense","tax_expense","other_expense"])};
 const loginAttempts = new Map();
@@ -72,10 +78,14 @@ const auth = async (req, res, next) => {
   if (!payload) return res.status(401).json({ error: "unauthorized" });
   const result = await pool.query("select id,username,display_name,role from app_users where lower(username)=lower($1) and enabled=true", [payload.sub]);
   if (!result.rowCount) return res.status(401).json({ error: "unauthorized" });
-  req.user = result.rows[0]; next();
+  const user=result.rows[0];
+  const permissions=user.role==="admin"?permissionKeys:(await pool.query("select permission_key from role_permissions where role=$1 and allowed=true",[user.role])).rows.map(row=>row.permission_key);
+  req.user = {...user,permissions}; next();
 };
 const asyncRoute = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const requireRole = (...allowed) => (req, res, next) => allowed.includes(req.user.role) ? next() : res.status(403).json({ error: "forbidden" });
+const requirePermission = permission => (req,res,next) => req.user.role==="admin"||req.user.permissions.includes(permission)?next():res.status(403).json({error:"forbidden"});
+const requireAnyPermission = (...permissions) => (req,res,next) => req.user.role==="admin"||permissions.some(permission=>req.user.permissions.includes(permission))?next():res.status(403).json({error:"forbidden"});
 const getSystemSettings = async (client=pool) => (await client.query("select * from system_settings where id=true")).rows[0];
 const isoDatePattern=/^\d{4}-\d{2}-\d{2}$/;
 const validIsoDate=value=>isoDatePattern.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
@@ -98,8 +108,8 @@ const auditMetadata=(path,method)=>{
   if(root==="sales"&&parts[2]==="invoice")return {module:"invoices",action:"issue_invoice",entityType:"sale",entityId:id};
   if(root==="invoices"&&parts[2]==="corrections")return {module:"invoices",action:"correct_invoice",entityType:"invoice",entityId:id};
   if(root==="invoices"&&parts[2]==="storno")return {module:"invoices",action:"void_invoice",entityType:"invoice",entityId:id};
-  const modules={settings:"system",users:"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices","finance-transactions":"finance"};
-  const entities={settings:"settings",users:"user",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice","finance-transactions":"finance_transaction"};
+  const modules={settings:"system",users:"users","role-permissions":"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices","finance-transactions":"finance"};
+  const entities={settings:"settings",users:"user","role-permissions":"role",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice","finance-transactions":"finance_transaction"};
   return {module:modules[root]||root,action:{POST:"create",PUT:"update",PATCH:"update",DELETE:"delete"}[method]||"change",entityType:entities[root]||root,entityId:id};
 };
 
@@ -136,7 +146,8 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
   }
   loginAttempts.delete(key);
   await pool.query("update app_users set last_login_at=now() where id=$1", [user.id]);
-  res.json({ token: sign({ sub: user.username, role: user.role }), user: { id:user.id,username:user.username,displayName:user.display_name,role:user.role } });
+  const permissions=user.role==="admin"?permissionKeys:(await pool.query("select permission_key from role_permissions where role=$1 and allowed=true",[user.role])).rows.map(row=>row.permission_key);
+  res.json({ token: sign({ sub: user.username, role: user.role }), user: { id:user.id,username:user.username,displayName:user.display_name,role:user.role,permissions } });
 }));
 
 app.use("/api", asyncRoute(auth));
@@ -155,9 +166,9 @@ app.use("/api",(req,res,next)=>{
   next();
 });
 
-app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role } }));
+app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role,permissions:req.user.permissions } }));
 
-app.get("/api/finance-transactions",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+app.get("/api/finance-transactions",requirePermission("page.flowDetails"),asyncRoute(async(req,res)=>{
   const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||"");
   if((startDate&&!validIsoDate(startDate))||(endDate&&!validIsoDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
   const result=await pool.query(`with ledger as (
@@ -196,7 +207,7 @@ app.get("/api/finance-transactions",requireRole("admin","finance"),asyncRoute(as
   res.json({rows:result.rows,summary});
 }));
 
-app.post("/api/finance-transactions",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+app.post("/api/finance-transactions",requirePermission("finance.create"),asyncRoute(async(req,res)=>{
   const body=req.body||{},occurredOn=String(body.occurredOn||""),direction=String(body.direction||""),category=String(body.category||"").trim().slice(0,100),paymentMethod=String(body.paymentMethod||""),currency=String(body.currency||"").toUpperCase(),amount=Number(body.amount),note=String(body.note||"").trim().slice(0,1000);
   if(!validIsoDate(occurredOn)||!manualFinanceCategories[direction]?.has(category)||!new Set(["cash","bank_transfer"]).has(paymentMethod)||!currencies.has(currency)||!Number.isFinite(amount)||amount<=0||amount>999999999999.99)return res.status(400).json({error:"invalid finance transaction"});
   const result=await pool.query("insert into finance_transactions(occurred_on,direction,category,payment_method,currency,amount,note,created_by) values($1,$2,$3,$4,$5,$6,$7,$8) returning *",[occurredOn,direction,category,paymentMethod,currency,amount,note,req.user.username]);
@@ -216,7 +227,7 @@ app.get("/api/audit-logs",requireRole("admin"),asyncRoute(async(req,res)=>{
 }));
 
 app.get("/api/settings", asyncRoute(async (_req,res)=>res.json(await getSystemSettings())));
-app.patch("/api/settings", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.patch("/api/settings", requirePermission("settings.manage"), asyncRoute(async (req,res)=>{
   const current=await getSystemSettings(),body=req.body||{},text=(key,max)=>String(body[key]??current[key]).trim().slice(0,max);
   const companyName=text("company_name",200),taxNumber=text("tax_number",100),registrationNumber=text("registration_number",100),companyAddress=text("company_address",500),companyPhone=text("company_phone",100),companyEmail=text("company_email",200),companyWebsite=text("company_website",300),defaultWarehouse=text("default_warehouse",120),salesOrderPrefix=text("sales_order_prefix",12),purchaseOrderPrefix=text("purchase_order_prefix",12);
   const eurHufRate=Number(body.eur_huf_rate??current.eur_huf_rate),usdHufRate=Number(body.usd_huf_rate??current.usd_huf_rate),defaultCurrency=String(body.default_currency??current.default_currency).toUpperCase(),allowOverselling=body.allow_overselling??current.allow_overselling,lowStockThreshold=Number(body.low_stock_threshold??current.low_stock_threshold);
@@ -246,8 +257,33 @@ app.patch("/api/users/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
   if(!result.rowCount)return res.status(404).json({error:"用户不存在"});
   res.json(result.rows[0]);
 }));
+app.delete("/api/users/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+  if(String(req.user.id)===String(req.params.id))return res.status(400).json({error:"不能删除当前登录账号"});
+  const result=await pool.query("delete from app_users where id=$1 returning id,username",[req.params.id]);
+  if(!result.rowCount)return res.status(404).json({error:"用户不存在"});
+  res.json(result.rows[0]);
+}));
+app.get("/api/role-permissions",requireRole("admin"),asyncRoute(async(_req,res)=>{
+  const rows=(await pool.query("select role,permission_key from role_permissions where allowed=true order by role,permission_key")).rows;
+  const permissions=Object.fromEntries(configurableRoles.map(role=>[role,rows.filter(row=>row.role===role).map(row=>row.permission_key)]));
+  res.json({roles:configurableRoles,permissionKeys,permissions});
+}));
+app.put("/api/role-permissions/:role",requireRole("admin"),asyncRoute(async(req,res)=>{
+  const role=String(req.params.role||"");
+  if(!configurableRoles.includes(role))return res.status(400).json({error:"不能修改该角色的权限"});
+  const requested=Array.isArray(req.body?.permissions)?[...new Set(req.body.permissions.map(String))]:[];
+  if(requested.some(permission=>!permissionKeySet.has(permission)))return res.status(400).json({error:"包含无效权限"});
+  const client=await pool.connect();
+  try{
+    await client.query("begin");
+    await client.query("delete from role_permissions where role=$1",[role]);
+    for(const permission of requested)await client.query("insert into role_permissions(role,permission_key,allowed) values($1,$2,true)",[role,permission]);
+    await client.query("commit");
+    res.json({role,permissions:requested});
+  }catch(error){await client.query("rollback");throw error}finally{client.release()}
+}));
 
-app.get("/api/dashboard", asyncRoute(async (_req, res) => {
+app.get("/api/dashboard", requirePermission("page.dashboard"), asyncRoute(async (_req, res) => {
   const [products, customers, sales, returns, purchases] = await Promise.all([
     pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products where deleted_at is null"),
     pool.query("select count(*)::int count from customers where deleted_at is null"),
@@ -260,18 +296,18 @@ app.get("/api/dashboard", asyncRoute(async (_req, res) => {
   res.json({ products: products.rows[0], customers: customers.rows[0], sales: saleTotals, purchases: purchases.rows[0] });
 }));
 
-app.get("/api/categories", asyncRoute(async (_req,res)=>{
+app.get("/api/categories", requireAnyPermission("page.products","page.categories","page.reports","page.dashboard"), asyncRoute(async (_req,res)=>{
   const result=await pool.query("select c.*,coalesce((select count(*) from products p where p.deleted_at is null and lower(btrim(p.category))=lower(c.name)),0)::int product_count from product_categories c where c.deleted_at is null order by coalesce(c.parent_id,c.id),c.parent_id nulls first,lower(c.name)");
   res.json(result.rows);
 }));
-app.post("/api/categories", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.post("/api/categories", requirePermission("categories.manage"), asyncRoute(async (req,res)=>{
   const name=String(req.body?.name||"").trim(),name2=String(req.body?.name2||"").trim(),parentId=req.body?.parentId===null||req.body?.parentId===""||req.body?.parentId===undefined?null:Number(req.body.parentId);
   if(!name||(parentId!==null&&!Number.isSafeInteger(parentId)))return res.status(400).json({error:"invalid category data"});
   if(parentId!==null){const parent=await pool.query("select id from product_categories where id=$1 and parent_id is null and deleted_at is null",[parentId]);if(!parent.rowCount)return res.status(400).json({error:"parent category must be a main category"})}
   const result=await pool.query("insert into product_categories(parent_id,name,name2) values($1,$2,$3) returning *,0::int product_count",[parentId,name,name2]);
   res.status(201).json(result.rows[0]);
 }));
-app.post("/api/categories/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.post("/api/categories/import", requirePermission("categories.manage"), asyncRoute(async (req,res)=>{
   const source=Array.isArray(req.body?.categories)?req.body.categories:[];
   if(!source.length||source.length>1000)return res.status(400).json({error:"category import must contain between 1 and 1000 rows"});
   const rows=source.map((item,index)=>({row:index+2,mainName:String(item?.mainName||"").trim(),mainName2:String(item?.mainName2||"").trim(),childName:String(item?.childName||"").trim(),childName2:String(item?.childName2||"").trim()})),errors=[],mainDefinitions=new Map(),importedNames=new Map();
@@ -303,7 +339,7 @@ app.post("/api/categories/import", requireRole("admin","purchasing","warehouse")
     res.status(201).json({count:created.length,mainCount:created.filter(category=>category.parent_id===null).length,childCount:created.filter(category=>category.parent_id!==null).length});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
-app.patch("/api/categories/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.patch("/api/categories/:id", requirePermission("categories.manage"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{
     await client.query("begin");
@@ -319,7 +355,7 @@ app.patch("/api/categories/:id", requireRole("admin","purchasing","warehouse"), 
     res.json({...result.rows[0],product_count:count.rows[0].product_count});
   }catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
-app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
+app.put("/api/categories/:id/image", requirePermission("categories.manage"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
   const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase(),extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
   if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"invalid category image"});
   const category=await pool.query("select id,image_url from product_categories where id=$1 and deleted_at is null",[req.params.id]);
@@ -334,7 +370,7 @@ app.put("/api/categories/:id/image", requireRole("admin","purchasing","warehouse
   const count=await pool.query("select count(*)::int product_count from products where deleted_at is null and lower(btrim(category))=lower($1)",[updated.rows[0].name]);
   res.json({...updated.rows[0],product_count:count.rows[0].product_count});
 }));
-app.delete("/api/categories/:id/image", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.delete("/api/categories/:id/image", requirePermission("categories.manage"), asyncRoute(async (req,res)=>{
   const category=await pool.query("select * from product_categories where id=$1 and deleted_at is null",[req.params.id]);
   if(!category.rowCount)return res.status(404).json({error:"category not found"});
   const updated=await pool.query("update product_categories set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
@@ -344,7 +380,7 @@ app.delete("/api/categories/:id/image", requireRole("admin","purchasing","wareho
   res.json({...updated.rows[0],product_count:count.rows[0].product_count});
 }));
 
-app.delete("/api/categories/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/categories/:id", requirePermission("categories.delete"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();let imageUrls=[];
   try{
     await client.query("begin");
@@ -360,18 +396,18 @@ app.delete("/api/categories/:id", requireRole("admin"), asyncRoute(async (req,re
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 
-app.get("/api/products", asyncRoute(async (req, res) => {
+app.get("/api/products", requireAnyPermission("page.dashboard","page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (req, res) => {
   const q = `%${req.query.search || ""}%`;
   const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
   if(categoryId!==null&&!Number.isSafeInteger(categoryId))return res.status(400).json({error:"invalid category"});
   const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.deleted_at is null and (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2::bigint is null or lower(btrim(p.category)) in (select lower(name) from product_categories where deleted_at is null and (id=$2 or parent_id=$2))) order by p.id desc limit 500", [q,categoryId]);
   res.json(result.rows);
 }));
-app.get("/api/products/categories", asyncRoute(async (_req,res)=>{
+app.get("/api/products/categories", requireAnyPermission("page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (_req,res)=>{
   const result=await pool.query("select name from product_categories where deleted_at is null order by lower(name)");
   res.json(result.rows.map(row=>row.name));
 }));
-app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.post("/api/products/import", requirePermission("products.manage"), asyncRoute(async (req,res)=>{
   const source=Array.isArray(req.body?.products)?req.body.products:[];
   if(!source.length||source.length>1000)return res.status(400).json({error:"product import must contain between 1 and 1000 rows"});
   const importNumber=(value,fallback)=>String(value??"").trim()===""?fallback:Number(value);
@@ -413,13 +449,13 @@ app.post("/api/products/import", requireRole("admin","purchasing","warehouse"), 
     res.status(201).json({count:created.length,stockTotal:products.reduce((total,product)=>total+product.stock,0),products:created});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
-app.get("/api/products/:id", asyncRoute(async (req,res)=>{
+app.get("/api/products/:id", requireAnyPermission("page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (req,res)=>{
   const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.id=$1 and p.deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
   res.json({...product.rows[0],movements:movements.rows});
 }));
-app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
+app.post("/api/products", requirePermission("products.manage"), asyncRoute(async (req, res) => {
   const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),name2=String(b.name2||"").trim(),boxSize=Number(b.boxSize??1),cost=Number(b.cost??0),priceHuf=Number(b.priceHuf??b.price??0),priceEur=Number(b.priceEur??0),priceUsd=Number(b.priceUsd??0);
   if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||[cost,priceHuf,priceEur,priceUsd].some(value=>!Number.isFinite(value)||value<0))return res.status(400).json({error:"invalid product data"});
   const category=String(b.category||"").trim();
@@ -427,7 +463,7 @@ app.post("/api/products", requireRole("admin","purchasing","warehouse"), asyncRo
   const result = await pool.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,cost,price,price_eur,price_usd,stock) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,0) returning *", [sku,String(b.barcode||"").trim(),name,name2,String(b.category||"").trim(),String(b.supplier||"").trim(),String(b.unit||"个").trim()||"个",boxSize,cost,priceHuf,priceEur,priceUsd]);
   res.status(201).json(result.rows[0]);
 }));
-app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req, res) => {
+app.patch("/api/products/:id", requirePermission("products.manage"), asyncRoute(async (req, res) => {
   const b=req.body||{};
   const sku=b.sku===undefined?null:String(b.sku).trim(),name=b.name===undefined?null:String(b.name).trim(),name2=b.name2===undefined?null:String(b.name2).trim(),unit=b.unit===undefined?null:String(b.unit).trim(),boxSize=b.boxSize===undefined?null:Number(b.boxSize),cost=b.cost===undefined?null:Number(b.cost),priceHuf=b.priceHuf===undefined&&b.price===undefined?null:Number(b.priceHuf??b.price),priceEur=b.priceEur===undefined?null:Number(b.priceEur),priceUsd=b.priceUsd===undefined?null:Number(b.priceUsd);
   if(sku===""||name===""||unit===""||(boxSize!==null&&(!Number.isSafeInteger(boxSize)||boxSize<=0))||[cost,priceHuf,priceEur,priceUsd].some(value=>value!==null&&(!Number.isFinite(value)||value<0)))return res.status(400).json({error:"invalid product data"});
@@ -438,7 +474,7 @@ app.patch("/api/products/:id", requireRole("admin","purchasing","warehouse"), as
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
-app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
+app.put("/api/products/:id/image", requirePermission("products.images"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
   const mimeType=String(req.headers["content-type"]||"").split(";")[0].toLowerCase();
   const extensions={"image/jpeg":"jpg","image/png":"png","image/webp":"webp"};
   if(!extensions[mimeType]||!Buffer.isBuffer(req.body)||!req.body.length)return res.status(400).json({error:"only non-empty JPG, PNG and WebP images are supported"});
@@ -455,7 +491,7 @@ app.put("/api/products/:id/image", requireRole("admin","purchasing","warehouse",
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
-app.delete("/api/products/:id/image", requireRole("admin","purchasing","warehouse","sales"), asyncRoute(async (req,res)=>{
+app.delete("/api/products/:id/image", requirePermission("products.images"), asyncRoute(async (req,res)=>{
   const product=await pool.query("select * from products where id=$1 and deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const updated=await pool.query("update products set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
@@ -464,7 +500,7 @@ app.delete("/api/products/:id/image", requireRole("admin","purchasing","warehous
   const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
-app.delete("/api/products/batch-delete", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/products/batch-delete", requirePermission("products.delete"), asyncRoute(async (req,res)=>{
   const ids=[...new Set((Array.isArray(req.body?.ids)?req.body.ids:[]).map(Number))];
   if(!ids.length||ids.length>500||ids.some(id=>!Number.isSafeInteger(id)||id<=0))return res.status(400).json({error:"select between 1 and 500 valid products"});
   const client=await pool.connect();let imageUrls=[];
@@ -479,7 +515,7 @@ app.delete("/api/products/batch-delete", requireRole("admin"), asyncRoute(async 
     res.json({ids,count:ids.length});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
-app.delete("/api/products/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/products/:id", requirePermission("products.delete"), asyncRoute(async (req,res)=>{
   const product=await pool.query("update products set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id,image_url",[req.user.username,req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const imageUrl=product.rows[0].image_url;if(imageUrl?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(imageUrl))).catch(()=>{});
@@ -488,23 +524,23 @@ app.delete("/api/products/:id", requireRole("admin"), asyncRoute(async (req,res)
 app.get("/api/i18n/locales", asyncRoute(async (_req,res)=>{
   res.json((await pool.query("select locale,display_name,is_default from supported_locales where enabled=true order by is_default desc,locale")).rows);
 }));
-app.put("/api/products/:id/translations/:locale", requireRole("admin","purchasing"), asyncRoute(async (req,res)=>{
+app.put("/api/products/:id/translations/:locale", requirePermission("products.manage"), asyncRoute(async (req,res)=>{
   const result=await pool.query("insert into product_translations(product_id,locale,name,description) values($1,$2,$3,$4) on conflict(product_id,locale) do update set name=excluded.name,description=excluded.description returning *",[req.params.id,req.params.locale,req.body.name,req.body.description||""]);
   res.json(result.rows[0]);
 }));
 
-app.get("/api/customers", requireRole("admin","sales","finance"), asyncRoute(async (req, res) => {
+app.get("/api/customers", requireAnyPermission("page.dashboard","page.customers","page.sales","page.scanSales","page.issueInvoice","page.reports"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
   const result=await pool.query("select * from customers where deleted_at is null and (name ilike $1 or phone ilike $1 or city ilike $1 or tax_number ilike $1) order by id desc limit 500",[q]);
   res.json(result.rows);
 }));
-app.post("/api/customers", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.post("/api/customers", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},name=String(b.name||"").trim();
   if(!name)return res.status(400).json({error:"customer name is required"});
   const result=await pool.query("insert into customers(name,phone,city,address,customer_group,country,postal_code,tax_number,email) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *",[name,String(b.phone||"").trim(),String(b.city||"").trim(),String(b.address||"").trim(),String(b.group||"零售").trim(),String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim()]);
   res.status(201).json(result.rows[0]);
 }));
-app.patch("/api/customers/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.patch("/api/customers/:id", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},current=(await pool.query("select * from customers where id=$1 and deleted_at is null",[req.params.id])).rows[0];
   if(!current)return res.status(404).json({error:"customer not found"});
   const value=(camel,column,max=500)=>String(b[camel]??current[column]??"").trim().slice(0,max),name=value("name","name",200);
@@ -512,13 +548,13 @@ app.patch("/api/customers/:id", requireRole("admin","sales"), asyncRoute(async (
   const result=await pool.query("update customers set name=$1,phone=$2,city=$3,address=$4,customer_group=$5,country=$6,postal_code=$7,tax_number=$8,email=$9,updated_at=now() where id=$10 and deleted_at is null returning *",[name,value("phone","phone",100),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
   res.json(result.rows[0]);
 }));
-app.delete("/api/customers/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/customers/:id", requirePermission("customers.delete"), asyncRoute(async (req,res)=>{
   const result=await pool.query("update customers set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id",[req.user.username,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"customer not found"});res.json({id:Number(result.rows[0].id)});
 }));
 
-app.get("/api/purchases", requireRole("admin","purchasing","warehouse","finance"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id where p.deleted_at is null group by p.id order by p.created_at desc limit 500")).rows)));
-app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncRoute(async (req,res)=>{
+app.get("/api/purchases", requirePermission("page.purchases"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id where p.deleted_at is null group by p.id order by p.created_at desc limit 500")).rows)));
+app.post("/api/purchases", requirePermission("purchases.create"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const supplier=String(body.supplier||"").trim();
   const settings=await getSystemSettings();
@@ -539,7 +575,7 @@ app.post("/api/purchases", requireRole("admin","purchasing","warehouse"), asyncR
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.delete("/api/purchases/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/purchases/:id", requirePermission("purchases.delete"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{
     await client.query("begin");
@@ -552,7 +588,7 @@ app.delete("/api/purchases/:id", requireRole("admin"), asyncRoute(async (req,res
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 
-app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.get("/api/sales", requireAnyPermission("page.dashboard","page.sales","page.scanSales","page.collectorSales","page.issueInvoice","page.reports"), asyncRoute(async (req,res)=>{
   const startDate=String(req.query.startDate||"");
   const endDate=String(req.query.endDate||"");
   const datePattern=/^\d{4}-\d{2}-\d{2}$/;
@@ -567,7 +603,7 @@ app.get("/api/sales", requireRole("admin","sales","finance"), asyncRoute(async (
   const result=await pool.query(`select s.*,c.name customer,(select count(*)::int from sale_items si where si.sale_id=s.id) item_count,(select coalesce(sum(si.quantity),0)::int from sale_items si where si.sale_id=s.id) quantity,(select coalesce(sum(sp.amount),0)::numeric from sale_payments sp where sp.sale_id=s.id) paid_total,exists(select 1 from invoices deleted_invoice where deleted_invoice.sale_id=s.id and deleted_invoice.deleted_at is not null) invoice_record_deleted from sales s left join customers c on c.id=s.customer_id${where} order by s.created_at desc${limit}`,params);
   res.json(result.rows);
 }));
-app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.get("/api/sales/:id", requireAnyPermission("page.sales","page.scanSales","page.collectorSales","page.issueInvoice","page.invoiceList","page.reports"), asyncRoute(async (req,res)=>{
   const sale=await pool.query("select s.*,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address,c.country customer_country,c.postal_code customer_postal_code,c.tax_number customer_tax_number,c.email customer_email from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
   const items=await pool.query("select si.id,si.product_id,si.quantity,si.price,p.sku,p.barcode,p.name,p.name2,p.unit,p.stock,p.image_url from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
@@ -576,12 +612,12 @@ app.get("/api/sales/:id", requireRole("admin","sales","finance"), asyncRoute(asy
   res.json({...sale.rows[0],paid_total:paidTotal,balance:Math.max(Number(sale.rows[0].total)-paidTotal,0),items:items.rows,payments:payments.rows});
 }));
 
-app.get("/api/invoices", requireRole("admin","sales","finance"), asyncRoute(async (_req,res)=>{
+app.get("/api/invoices", requireAnyPermission("page.invoiceList","page.issueInvoice"), asyncRoute(async (_req,res)=>{
   const result=await pool.query("select i.*,s.order_no,coalesce(nullif(i.buyer_name,''),c.name) customer,p.invoice_number parent_invoice_number,case when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='cancellation' and x.status='issued') then 'zeroed' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='storno' and x.status='issued') then 'voided' when i.document_type in ('invoice','replacement') and exists(select 1 from invoices x where x.parent_invoice_id=i.id and x.document_type='correction' and x.status='issued') then 'corrected' else i.status end lifecycle_status from invoices i join sales s on s.id=i.sale_id left join customers c on c.id=s.customer_id left join invoices p on p.id=i.parent_invoice_id where s.deleted_at is null order by i.created_at desc limit 500");
   res.json(result.rows);
 }));
 
-app.get("/api/invoices/:id", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.get("/api/invoices/:id", requirePermission("page.invoiceList"), asyncRoute(async (req,res)=>{
   const invoice=(await pool.query("select i.*,s.order_no,p.invoice_number parent_invoice_number from invoices i join sales s on s.id=i.sale_id left join invoices p on p.id=i.parent_invoice_id where i.id=$1 and i.deleted_at is null and s.deleted_at is null",[req.params.id])).rows[0];
   if(!invoice)return res.status(404).json({error:"invoice not found"});
   const items=await pool.query("select * from invoice_items where invoice_id=$1 order by id",[req.params.id]);
@@ -589,7 +625,7 @@ app.get("/api/invoices/:id", requireRole("admin","sales","finance"), asyncRoute(
   res.json({...invoice,items:items.rows,related:related.rows});
 }));
 
-app.get("/api/invoices/:id/pdf", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.get("/api/invoices/:id/pdf", requirePermission("invoices.download"), asyncRoute(async (req,res)=>{
   const invoice=(await pool.query("select invoice_number,pdf_path,status from invoices where id=$1 and deleted_at is null",[req.params.id])).rows[0];
   if(!invoice)return res.status(404).json({error:"invoice not found"});
   if(invoice.status!=="issued"||!invoice.pdf_path)return res.status(409).json({error:"invoice PDF is not available"});
@@ -598,13 +634,13 @@ app.get("/api/invoices/:id/pdf", requireRole("admin","sales","finance"), asyncRo
   res.sendFile(path.join(invoiceDirectory,path.basename(invoice.pdf_path)));
 }));
 
-app.delete("/api/invoices/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/invoices/:id", requirePermission("invoices.delete"), asyncRoute(async (req,res)=>{
   const result=await pool.query("update invoices set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id,invoice_number",[req.user.username,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"invoice not found"});
   res.json({id:Number(result.rows[0].id),invoiceNumber:result.rows[0].invoice_number,externalInvoiceUnchanged:true});
 }));
 
-app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.post("/api/sales/:id/invoice", requirePermission("invoices.issue"), asyncRoute(async (req,res)=>{
   const agentKey=String(process.env.SZAMLAZZ_AGENT_KEY||"").trim();
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const b=req.body||{},paymentMethod=String(b.paymentMethod||"cash"),fulfillmentDate=String(b.fulfillmentDate||""),dueDate=String(b.dueDate||""),priceFactor=Number(b.priceFactor??1),exchangeRateBank=String(b.exchangeRateBank||"MNB").trim().slice(0,100),exchangeRate=Number(b.exchangeRate);
@@ -664,7 +700,7 @@ app.post("/api/sales/:id/invoice", requireRole("admin","sales","finance"), async
   }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"invoice creation failed").slice(0,2000),invoice.id]);throw error}
 }));
 
-app.post("/api/invoices/:id/storno", requireRole("admin","finance"), asyncRoute(async (req,res)=>{
+app.post("/api/invoices/:id/storno", requirePermission("invoices.manage"), asyncRoute(async (req,res)=>{
   const agentKey=String(process.env.SZAMLAZZ_AGENT_KEY||"").trim();
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const reason=String(req.body?.reason||"").trim().slice(0,1000);
@@ -706,7 +742,7 @@ app.post("/api/invoices/:id/storno", requireRole("admin","finance"), asyncRoute(
   }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"storno failed").slice(0,2000),storno.id]);throw error}
 }));
 
-app.post("/api/invoices/:id/corrections", requireRole("admin","finance"), asyncRoute(async (req,res)=>{
+app.post("/api/invoices/:id/corrections", requirePermission("invoices.manage"), asyncRoute(async (req,res)=>{
   const agentKey=String(process.env.SZAMLAZZ_AGENT_KEY||"").trim();
   if(!agentKey)return res.status(503).json({error:"SZAMLAZZ_AGENT_KEY is not configured"});
   const reason=String(req.body?.reason||"").trim().slice(0,1000);
@@ -741,7 +777,7 @@ app.post("/api/invoices/:id/corrections", requireRole("admin","finance"), asyncR
   }catch(error){await pool.query("update invoices set status='failed',error_code=$1,error_message=$2,updated_at=now() where id=$3",[String(error.providerCode||""),String(error.message||"correction failed").slice(0,2000),correction.id]);throw error}
 }));
 
-app.get("/api/picking-sales", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
+app.get("/api/picking-sales", requirePermission("page.pickingLists"), asyncRoute(async (req,res)=>{
   const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||""),datePattern=/^\d{4}-\d{2}-\d{2}$/;
   const validDate=value=>datePattern.test(value)&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
   if((startDate&&!validDate(startDate))||(endDate&&!validDate(endDate))||(startDate&&endDate&&startDate>endDate))return res.status(400).json({error:"invalid date range"});
@@ -753,14 +789,14 @@ app.get("/api/picking-sales", requireRole("admin","warehouse"), asyncRoute(async
   res.json(result.rows);
 }));
 
-app.get("/api/picking-sales/:id", requireRole("admin","warehouse"), asyncRoute(async (req,res)=>{
+app.get("/api/picking-sales/:id", requirePermission("page.pickingLists"), asyncRoute(async (req,res)=>{
   const sale=await pool.query("select s.id,s.order_no,s.created_at,s.created_by,s.notes,s.delivery_phone,s.vehicle_plate,s.delivery_address,s.delivery_date,c.name customer,c.phone customer_phone,c.city customer_city,c.address customer_address from sales s left join customers c on c.id=s.customer_id where s.id=$1 and s.deleted_at is null",[req.params.id]);
   if(!sale.rowCount)return res.status(404).json({error:"sale not found"});
   const items=await pool.query("select si.id,si.product_id,si.quantity,p.sku,p.barcode,p.name,p.name2 from sale_items si join products p on p.id=si.product_id where si.sale_id=$1 order by si.id",[req.params.id]);
   res.json({...sale.rows[0],items:items.rows});
 }));
 
-app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyncRoute(async (req,res)=>{
+app.post("/api/sales/:id/payments", requirePermission("sales.settle"), asyncRoute(async (req,res)=>{
   const body=req.body||{},amountText=String(body.amount??""),amount=Number(body.amount),method=String(body.method||""),bookedOn=String(body.bookedOn||""),note=String(body.note||"").trim().slice(0,1000);
   const datePattern=/^\d{4}-\d{2}-\d{2}$/;
   const parsedDate=new Date(`${bookedOn}T00:00:00Z`);
@@ -784,7 +820,7 @@ app.post("/api/sales/:id/payments", requireRole("admin","sales","finance"), asyn
     res.status(201).json({payment:payment.rows[0],paid_total:paidTotal,balance:Math.max(total-paidTotal,0),settled,currency:sale.rows[0].currency});
   }catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
-app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
@@ -810,7 +846,7 @@ app.post("/api/sales", requireRole("admin","sales"), asyncRoute(async (req,res)=
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
@@ -853,7 +889,7 @@ app.put("/api/sales/:id", requireRole("admin","sales"), asyncRoute(async (req,re
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.delete("/api/sales/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
+app.delete("/api/sales/:id", requirePermission("sales.delete"), asyncRoute(async (req,res)=>{
   const client=await pool.connect();
   try{
     await client.query("begin");
@@ -869,7 +905,7 @@ app.delete("/api/sales/:id", requireRole("admin"), asyncRoute(async (req,res)=>{
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 
-app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.post("/api/sales/:id/returns", requirePermission("sales.edit"), asyncRoute(async (req,res)=>{
   const body=req.body||{};
   const requested=Array.isArray(body.items)?body.items.map(item=>({saleItemId:Number(item.saleItemId),quantity:Number(item.quantity)})).filter(item=>item.quantity>0):[];
   if(!requested.length||requested.length>200) return res.status(400).json({error:"return must contain between 1 and 200 items"});
@@ -895,14 +931,14 @@ app.post("/api/sales/:id/returns", requireRole("admin","sales"), asyncRoute(asyn
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
 
-app.patch("/api/sales/:id/notes", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.patch("/api/sales/:id/notes", requirePermission("sales.edit"), asyncRoute(async (req,res)=>{
   const notes=String(req.body?.notes||"").trim().slice(0,1000);
   const result=await pool.query("update sales set notes=$1 where id=$2 and deleted_at is null returning *",[notes,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"sale not found"});
   res.json(result.rows[0]);
 }));
 
-app.patch("/api/sales/:id/status", requireRole("admin","sales"), asyncRoute(async (req,res)=>{
+app.patch("/api/sales/:id/status", requirePermission("sales.status"), asyncRoute(async (req,res)=>{
   const fields={stockDeducted:"stock_deducted",delivered:"delivered"};
   const changes=Object.entries(fields).filter(([key])=>typeof req.body?.[key]==="boolean");
   if(!changes.length)return res.status(400).json({error:"no valid status supplied"});
@@ -937,7 +973,7 @@ const reportDateValue=value=>{
   return String(value||"").slice(0,10);
 };
 
-app.get("/api/reports/sales",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+app.get("/api/reports/sales",requirePermission("page.reports"),asyncRoute(async(req,res)=>{
   const {startDate,endDate,currency}=reportQueryValues(req),salesperson=String(req.query.salesperson||"").trim(),customerId=Number(req.query.customerId)||null,productId=Number(req.query.productId)||null,category=String(req.query.category||"").trim(),settlement=String(req.query.settlement||"").trim();
   if(settlement&&!new Set(["unpaid","partial","paid"]).has(settlement))return res.status(400).json({error:"invalid settlement filter"});
   const params=[businessTimezone,startDate,endDate,currency,salesperson||null,customerId,productId,category||null,settlement||null];
@@ -973,7 +1009,7 @@ app.get("/api/reports/sales",requireRole("admin","finance"),asyncRoute(async(req
   res.json({currency,summary,trend:[...trend.values()].sort((a,b)=>a.date.localeCompare(b.date)),products:ranked(productsMap),customers:ranked(customersMap),details:[...detailMap.values()].sort((a,b)=>b.date.localeCompare(a.date)),meta:{salespeople:salespeopleResult.rows.map(row=>row.created_by)}});
 }));
 
-app.get("/api/reports/finance",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+app.get("/api/reports/finance",requirePermission("page.reports"),asyncRoute(async(req,res)=>{
   const {startDate,endDate,currency}=reportQueryValues(req),method=String(req.query.method||""),direction=String(req.query.direction||""),category=String(req.query.category||"");
   if(method&&!new Set(["cash","bank_transfer","unspecified"]).has(method)||direction&&!new Set(["income","expense"]).has(direction))return res.status(400).json({error:"invalid finance report filters"});
   const result=await pool.query(`with ledger as (
@@ -992,7 +1028,7 @@ app.get("/api/reports/finance",requireRole("admin","finance"),asyncRoute(async(r
   res.json({currency,summary,trend:[...trend.values()].sort((a,b)=>a.date.localeCompare(b.date)),categories:[...categoryMap.values()].sort((a,b)=>(b.income+b.expense)-(a.income+a.expense)),details:rows});
 }));
 
-app.get("/api/reports/customers",requireRole("admin","finance"),asyncRoute(async(req,res)=>{
+app.get("/api/reports/customers",requirePermission("page.reports"),asyncRoute(async(req,res)=>{
   const {startDate,endDate,currency}=reportQueryValues(req),customerId=Number(req.query.customerId)||null;
   const params=[businessTimezone,startDate,endDate,currency,customerId];
   const rows=await pool.query(`with selected_customers as (select * from customers c where c.deleted_at is null and ($5::bigint is null or c.id=$5)),orders as (
@@ -1010,7 +1046,7 @@ app.get("/api/reports/customers",requireRole("admin","finance"),asyncRoute(async
   res.json({currency,summary,trend:trend.rows.map(row=>({...row,date:reportDateValue(row.date)})),customers:data});
 }));
 
-app.get("/api/reports/summary", requireRole("admin","finance"), asyncRoute(async (_req,res)=>{
+app.get("/api/reports/summary", requirePermission("page.reports"), asyncRoute(async (_req,res)=>{
   const [sales,returns,purchases,stock]=await Promise.all([
     pool.query("select coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where deleted_at is null"),
     pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where s.deleted_at is null"),

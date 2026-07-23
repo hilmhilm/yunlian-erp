@@ -198,6 +198,7 @@ const normalizeUser = (user) => ({
   ...user,
   displayName: user.display_name ?? user.displayName ?? "",
   lastLoginAt: user.last_login_at ?? user.lastLoginAt ?? null,
+  permissions: Array.isArray(user.permissions) ? user.permissions : [],
 });
 
 const normalizeSettings = (settings = {}) => ({
@@ -537,6 +538,20 @@ export async function updateUser(token, id, changes) {
   return normalizeUser(await request(`/users/${id}`, {
     token, method: "PATCH", body: JSON.stringify(changes),
   }));
+}
+
+export async function deleteUser(token, id) {
+  return request(`/users/${id}`, { token, method: "DELETE" });
+}
+
+export async function fetchRolePermissions(token) {
+  return request("/role-permissions", { token });
+}
+
+export async function updateRolePermissions(token, role, permissions) {
+  return request(`/role-permissions/${role}`, {
+    token, method: "PUT", body: JSON.stringify({ permissions }),
+  });
 }
 
 export async function fetchSettings(token) {
