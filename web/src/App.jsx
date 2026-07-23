@@ -3,7 +3,7 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Upload, Ban, FilePenLine, RotateCcw, ScrollText,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Upload, Ban, FilePenLine, RotateCcw, ScrollText, KeyRound,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
@@ -47,7 +47,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.23-1";
+const uiVersion = "2026.07.23-2";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -372,7 +372,7 @@ function Products({ products, categories=[], onCreate, onUpdate, onDelete, onDel
   useEffect(()=>{if(!inventoryOnly)try{localStorage.setItem(productColumnStorageKey,JSON.stringify(selectedColumns.length?selectedColumns:defaultProductColumns))}catch{}},[visibleColumns,inventoryOnly]);
   const toggleColumn=key=>setVisibleColumns(current=>current.includes(key)?current.length===1?current:current.filter(item=>item!==key):[...current,key]);
   const columns=inventoryOnly?[
-    {key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
+    {key:"imageUrl",label:t("productImage"),width:"76px"},{key:"sku",label:"货号"},{key:"name",label:"产品名"},{key:"category",label:"分类"},{key:"supplier",label:"仓库/供货商"},{key:"stock",label:"库存量"},{key:"box",label:"箱数"}
   ]:productColumnOptions.filter(option=>selectedColumns.includes(option.key));
   const exportProducts=async()=>{
     const ExcelJS=await loadExcelJs();
@@ -874,7 +874,7 @@ function SettingsPage({currentUser,settings,onSaveSettings,onOpenEmployees,edita
 
 function UserManagementPage({currentUser,users,permissionsByRole,onCreateUser,onUpdateUser,onDeleteUser,onSavePermissions,loading=false,error=""}) {
   const {t}=useI18n();
-  const [modal,setModal]=useState(false),[permissionDraft,setPermissionDraft]=useState(permissionsByRole),[savingPermissions,setSavingPermissions]=useState(false),[permissionError,setPermissionError]=useState(""),[permissionsSaved,setPermissionsSaved]=useState(false);
+  const [modal,setModal]=useState(false),[passwordUser,setPasswordUser]=useState(null),[permissionDraft,setPermissionDraft]=useState(permissionsByRole),[savingPermissions,setSavingPermissions]=useState(false),[permissionError,setPermissionError]=useState(""),[permissionsSaved,setPermissionsSaved]=useState(false);
   const pagination=usePaginatedRows(users);
   useEffect(()=>setPermissionDraft(permissionsByRole),[permissionsByRole]);
   const togglePermission=(role,key)=>{setPermissionDraft(current=>{const values=current[role]||[];return {...current,[role]:values.includes(key)?values.filter(item=>item!==key):[...values,key]}});setPermissionsSaved(false)};
@@ -882,12 +882,13 @@ function UserManagementPage({currentUser,users,permissionsByRole,onCreateUser,on
   return <Page><section className="panel settings-panel user-management">
     <div className="panel-heading"><div><h2>{t("employeeManagement")}</h2><p>{t("employeeAccessDescription")}</p></div><button className="primary" onClick={()=>setModal(true)} disabled={loading}><Plus size={16}/>{t("addUser")}</button></div>
     {error&&<div className="form-error">{error}</div>}
-    <div className="table-wrap"><table><thead><tr><th>{t("username")}</th><th>{t("displayName")}</th><th>{t("role")}</th><th>{t("statusLabel")}</th><th>{t("lastLogin")}</th><th>{t("actions")}</th></tr></thead><tbody>{pagination.rows.map(user=><tr key={user.id}><td><b>{user.username}</b></td><td>{user.displayName}</td><td><select value={user.role} disabled={loading||user.id===currentUser.id} onChange={event=>onUpdateUser(user.id,{role:event.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></td><td><select className={user.enabled?"status-select enabled":"status-select disabled"} value={user.enabled?"enabled":"disabled"} disabled={loading||user.id===currentUser.id} onChange={event=>onUpdateUser(user.id,{enabled:event.target.value==="enabled"})}><option value="enabled">{t("enabled")}</option><option value="disabled">{t("disabled")}</option></select></td><td>{user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString():"—"}</td><td><div className="row-actions">{user.id!==currentUser.id&&<DeleteRowButton onDelete={()=>onDeleteUser(user.id)} label={user.username} confirmText={t("confirmDeleteUser")}/>}</div></td></tr>)}</tbody></table>{!users.length&&<div className="empty">{t("noData")}</div>}<Pagination {...pagination} onPageChange={pagination.setPage}/></div>
+    <div className="table-wrap"><table><thead><tr><th>{t("username")}</th><th>{t("displayName")}</th><th>{t("role")}</th><th>{t("statusLabel")}</th><th>{t("lastLogin")}</th><th>{t("actions")}</th></tr></thead><tbody>{pagination.rows.map(user=><tr key={user.id}><td><b>{user.username}</b></td><td>{user.displayName}</td><td><select value={user.role} disabled={loading||user.id===currentUser.id} onChange={event=>onUpdateUser(user.id,{role:event.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></td><td><select className={user.enabled?"status-select enabled":"status-select disabled"} value={user.enabled?"enabled":"disabled"} disabled={loading||user.id===currentUser.id} onChange={event=>onUpdateUser(user.id,{enabled:event.target.value==="enabled"})}><option value="enabled">{t("enabled")}</option><option value="disabled">{t("disabled")}</option></select></td><td>{user.lastLoginAt?new Date(user.lastLoginAt).toLocaleString():"—"}</td><td><div className="row-actions">{user.id!==currentUser.id&&<><button type="button" title={t("resetUserPassword")} onClick={()=>setPasswordUser(user)}><KeyRound size={16}/></button><DeleteRowButton onDelete={()=>onDeleteUser(user.id)} label={user.username} confirmText={t("confirmDeleteUser")}/></>}</div></td></tr>)}</tbody></table>{!users.length&&<div className="empty">{t("noData")}</div>}<Pagination {...pagination} onPageChange={pagination.setPage}/></div>
     <section className="permission-panel"><div className="permission-heading"><div><h3>{t("permissionManagement")}</h3><p>{t("permissionManagementDescription")}</p><small>{t("adminAlwaysFullAccess")}</small></div><button className="primary" onClick={savePermissions} disabled={savingPermissions||loading}><Check size={16}/>{savingPermissions?t("saving"):t("savePermissions")}</button></div>
       {permissionError&&<div className="form-error">{permissionError}</div>}{permissionsSaved&&<div className="collector-success"><Check size={16}/>{t("permissionsSaved")}</div>}
       <div className="table-wrap permission-matrix"><table><thead><tr><th>{t("permissionItem")}</th>{configurableRoles.map(role=><th key={role}>{t(`role_${role}`)}</th>)}</tr></thead><tbody>{permissionGroups.map(group=><PermissionGroupRows key={group.key} group={group} roles={configurableRoles} values={permissionDraft} onToggle={togglePermission} t={t}/>)}</tbody></table></div>
     </section>
     {modal&&<UserModal onClose={()=>setModal(false)} onSave={async data=>{await onCreateUser(data);setModal(false)}}/>}
+    {passwordUser&&<ResetPasswordModal user={passwordUser} onClose={()=>setPasswordUser(null)} onSave={async password=>{await onUpdateUser(passwordUser.id,{password});setPasswordUser(null)}}/>}
   </section></Page>
 }
 
@@ -900,6 +901,13 @@ function UserModal({onClose,onSave}) {
   const [form,setForm]=useState({username:"",displayName:"",password:"",role:"sales"}),[saving,setSaving]=useState(false),[error,setError]=useState("");
   const save=async()=>{if(!form.username||form.password.length<8)return setError(t("userRequirements"));setSaving(true);setError("");try{await onSave(form)}catch(e){setError(`${t("userCreateFailed")}：${e.message}`)}finally{setSaving(false)}};
   return <Modal title={t("addUser")} onClose={onClose}><div className="form-grid"><label>{t("username")}<input value={form.username} onChange={e=>setForm({...form,username:e.target.value})}/></label><label>{t("displayName")}<input value={form.displayName} onChange={e=>setForm({...form,displayName:e.target.value})}/></label><label>{t("password")}<input type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/></label><label>{t("role")}<select value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>{roleOptions.map(role=><option key={role} value={role}>{t(`role_${role}`)}</option>)}</select></label></div>{error&&<div className="form-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("save")}</button></div></Modal>
+}
+
+function ResetPasswordModal({user,onClose,onSave}) {
+  const {t}=useI18n();
+  const [password,setPassword]=useState(""),[confirmation,setConfirmation]=useState(""),[saving,setSaving]=useState(false),[error,setError]=useState(""),[showPassword,setShowPassword]=useState(false);
+  const save=async()=>{if(password.length<8)return setError(t("passwordMinimumLength"));if(password!==confirmation)return setError(t("passwordsDoNotMatch"));setSaving(true);setError("");try{await onSave(password)}catch(saveError){setError(`${t("passwordResetFailed")}：${saveError.message}`)}finally{setSaving(false)}};
+  return <Modal title={`${t("resetUserPassword")} · ${user.username}`} onClose={onClose}><div className="form-grid password-reset-form"><label>{t("newPassword")}<input autoFocus type={showPassword?"text":"password"} autoComplete="new-password" value={password} onChange={event=>setPassword(event.target.value)}/></label><label>{t("confirmNewPassword")}<input type={showPassword?"text":"password"} autoComplete="new-password" value={confirmation} onChange={event=>setConfirmation(event.target.value)} onKeyDown={event=>event.key==="Enter"&&save()}/></label><label className="password-visibility"><input type="checkbox" checked={showPassword} onChange={event=>setShowPassword(event.target.checked)}/><span>{t("showPassword")}</span></label></div>{error&&<div className="form-error password-reset-error">{error}</div>}<div className="modal-actions"><button className="outline" onClick={onClose} disabled={saving}>{t("cancel")}</button><button className="primary" onClick={save} disabled={saving}>{saving?t("saving"):t("resetPassword")}</button></div></Modal>;
 }
 
 function Page({children}) {return <div className="page-content">{children}</div>}

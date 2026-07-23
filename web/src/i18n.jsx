@@ -265,6 +265,9 @@ Object.assign(messages.hu,{reportCustomerSearchPlaceholder:"Adjon meg legalább 
 Object.assign(messages["zh-CN"],{confirmDeleteUser:"确定删除这个员工账号吗？此操作无法恢复。",noAccessiblePages:"当前账号没有可访问页面",contactAdministratorForAccess:"请联系管理员分配角色页面权限。"});
 Object.assign(messages.en,{confirmDeleteUser:"Delete this employee account? This cannot be undone.",noAccessiblePages:"No pages are available for this account",contactAdministratorForAccess:"Ask an administrator to assign page permissions to this role."});
 Object.assign(messages.hu,{confirmDeleteUser:"Törli ezt a munkatársi fiókot? A művelet nem vonható vissza.",noAccessiblePages:"Ehhez a fiókhoz nincs elérhető oldal",contactAdministratorForAccess:"Kérje meg a rendszergazdát, hogy adjon oldaljogosultságot ehhez a szerepkörhöz."});
+Object.assign(messages["zh-CN"],{resetUserPassword:"重设密码",newPassword:"新密码",confirmNewPassword:"确认新密码",showPassword:"显示密码",resetPassword:"确认重设",passwordMinimumLength:"新密码至少需要 8 位",passwordsDoNotMatch:"两次输入的密码不一致",passwordResetFailed:"密码重设失败"});
+Object.assign(messages.en,{resetUserPassword:"Reset password",newPassword:"New password",confirmNewPassword:"Confirm new password",showPassword:"Show password",resetPassword:"Reset password",passwordMinimumLength:"The new password must be at least 8 characters",passwordsDoNotMatch:"The passwords do not match",passwordResetFailed:"Could not reset password"});
+Object.assign(messages.hu,{resetUserPassword:"Jelszó visszaállítása",newPassword:"Új jelszó",confirmNewPassword:"Új jelszó megerősítése",showPassword:"Jelszó megjelenítése",resetPassword:"Jelszó visszaállítása",passwordMinimumLength:"Az új jelszónak legalább 8 karakteresnek kell lennie",passwordsDoNotMatch:"A jelszavak nem egyeznek",passwordResetFailed:"A jelszó visszaállítása sikertelen"});
 
 const LocaleContext = createContext(null);
 
