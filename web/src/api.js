@@ -66,6 +66,7 @@ const normalizeProduct = (product) => ({
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
   imageUrl: product.image_url ?? product.imageUrl ?? "",
+  storageLocation: product.storage_location ?? product.storageLocation ?? "",
   movements: (product.movements || []).map(movement => ({
     ...movement,
     quantity: Number(movement.quantity || 0),
@@ -180,6 +181,7 @@ const normalizeSaleDetail = (sale) => ({
     productId: Number(item.product_id),
     name2: item.name2 || "",
     imageUrl: item.image_url ?? item.imageUrl ?? "",
+    storageLocation: item.storage_location ?? item.storageLocation ?? "",
     quantity: Number(item.quantity || 0),
     price: Number(item.price || 0),
     stock: Number(item.stock || 0),
