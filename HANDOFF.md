@@ -122,7 +122,7 @@
 5. **库存流水**：采购、正数销售和负数销售退货已经记录库存流水；调拨、盘点仍需接入同一套不可变流水。
 6. **真实多语言覆盖**：把所有表格字段、弹窗、校验错误和报表迁移到语言键。
 7. **备份**：增加定时 `pg_dump`，并将项目与备份目录纳入 Hyper Backup。
-8. **远程访问**：暂不开放公网 `8088`。用户计划回家后配置 Tailscale；在正式鉴权完成前禁止公网端口映射和公开反向代理。
+8. **远程访问**：用户已将 `kittymall.eu` 接入 Cloudflare，并创建名为 `KITTYMALL-ERP` 的 Tunnel。DS1517+ Compose 已加入 `cloudflared` 服务；生产 NAS 需要在 `.env` 中设置 `CLOUDFLARE_TUNNEL_TOKEN`，Cloudflare Published application 使用 `erp.kittymall.eu` → `http://web:80`。继续禁止公网映射 PostgreSQL、API、DSM 和 `8088`。
 9. **安全更新**：前端构建阶段的 npm audit 曾提示一个高风险开发依赖；生产 Web 镜像只包含静态文件和 Nginx。后续应在不破坏 Vite 构建的前提下升级依赖并重新验证。
 
 ## 敏感信息规则

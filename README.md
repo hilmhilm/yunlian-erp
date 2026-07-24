@@ -83,7 +83,7 @@ DS1517+ 与 DSM 7.1.1 用户请优先阅读 [`README-DS1517+.md`](README-DS1517+
 
 已有安装升级时不要删除 `data/postgres` 或 `data/product-images`。覆盖项目文件后再次运行部署脚本，API 会自动执行尚未应用的迁移；管理员密码仍以 NAS `.env` 中的 `ADMIN_PASSWORD` 为准。
 
-如需公网访问，建议使用群晖反向代理绑定域名并启用 Let's Encrypt HTTPS；数据库和 API 不应直接暴露公网端口。
+如需公网访问，建议使用 `docker-compose.ds1517.yml` 内置的 Cloudflare Tunnel 服务绑定 HTTPS 域名；Tunnel Token 只写入 NAS 的 `.env`，数据库、API、DSM 和公网 `8088` 均不应直接暴露。
 
 ## 数据备份
 

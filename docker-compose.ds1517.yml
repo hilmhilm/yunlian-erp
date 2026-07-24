@@ -64,6 +64,17 @@ services:
       - api
     networks: [erp-internal]
 
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    platform: linux/amd64
+    container_name: yunlian-erp-tunnel
+    restart: unless-stopped
+    mem_limit: 64m
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - web
+    networks: [erp-internal]
+
 networks:
   erp-internal:
     driver: bridge

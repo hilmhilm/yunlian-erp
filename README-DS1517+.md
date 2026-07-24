@@ -46,12 +46,13 @@ http://NAS局域网IP:8088
 
 ## 四、HTTPS 与公网访问
 
-不要直接把 PostgreSQL 或 API 暴露到公网。只让 Web 服务使用 8088 端口，然后在 DSM：
+不要直接把 PostgreSQL、API、DSM 管理端口或公网 `8088` 暴露到互联网。推荐使用 Cloudflare Tunnel：在 Cloudflare 创建 Tunnel 后，从 Docker 安装命令中只复制 `--token` 后面的 Token，写入 NAS 的 `.env`：
 
-1. 控制面板 → 登录门户 → 高级 → 反向代理服务器。
-2. 来源设置为你的 HTTPS 域名和 443 端口。
-3. 目的地设置为 `http://127.0.0.1:8088`。
-4. 控制面板 → 安全性 → 证书，为域名申请 Let's Encrypt 证书。
+```env
+CLOUDFLARE_TUNNEL_TOKEN=你的Cloudflare-Tunnel-Token
+```
+
+`docker-compose.ds1517.yml` 中的 `cloudflared` 会与 `web` 共用 `erp-internal` 网络。连接器变为 Healthy 后，在 Cloudflare 为 Tunnel 添加 Published application，主机名设置为 `erp.你的域名`，Service URL 设置为 `http://web:80`。Token 只保留在 NAS 的 `.env`，禁止提交到 GitHub或发送到聊天中。
 
 ## 五、数据与备份
 
