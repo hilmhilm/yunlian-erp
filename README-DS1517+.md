@@ -54,6 +54,8 @@ CLOUDFLARE_TUNNEL_TOKEN=你的Cloudflare-Tunnel-Token
 
 `docker-compose.ds1517.yml` 中的 `cloudflared` 会与 `web` 共用 `erp-internal` 网络。连接器变为 Healthy 后，在 Cloudflare 为 Tunnel 添加 Published application，主机名设置为 `erp.你的域名`，Service URL 设置为 `http://web:80`。Token 只保留在 NAS 的 `.env`，禁止提交到 GitHub或发送到聊天中。
 
+左侧菜单末尾的 MNB 展示汇率由 API 容器访问匈牙利央行官方服务自动读取。若 NAS 防火墙限制出站连接，需要允许 API 容器访问 `www.mnb.hu` 的 HTTP 80 端口；读取失败只会显示暂时不可用，不影响系统设置汇率及任何业务操作。
+
 ## 五、数据与备份
 
 PostgreSQL 数据保存在：

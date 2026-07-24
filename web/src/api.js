@@ -577,6 +577,17 @@ export async function fetchSettings(token) {
   return normalizeSettings(await request("/settings", { token }));
 }
 
+export async function fetchMnbExchangeRates(token) {
+  const rates = await request("/mnb-exchange-rates", { token });
+  return {
+    date: String(rates.date || ""),
+    eurHuf: Number(rates.eurHuf),
+    usdHuf: Number(rates.usdHuf),
+    fetchedAt: rates.fetchedAt || null,
+    stale: Boolean(rates.stale),
+  };
+}
+
 export async function updateSettings(token, settings) {
   return normalizeSettings(await request("/settings", {
     token,

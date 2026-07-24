@@ -7,6 +7,7 @@ import { mkdir, unlink, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import pg from "pg";
 import { runMigrations } from "./migrate.js";
+import { fetchMnbExchangeRates } from "./mnb.js";
 import { createInvoiceXml, createStornoXml, queryInvoicePdf, sendInvoiceXml, sendStornoXml } from "./szamlazz.js";
 
 const { Pool } = pg;
@@ -167,6 +168,16 @@ app.use("/api",(req,res,next)=>{
 });
 
 app.get("/api/auth/me", (req,res)=>res.json({ user: { id:req.user.id,username:req.user.username,displayName:req.user.display_name,role:req.user.role,permissions:req.user.permissions } }));
+
+app.get("/api/mnb-exchange-rates", asyncRoute(async (_req,res)=>{
+  try{
+    res.set("Cache-Control","private, max-age=300");
+    res.json(await fetchMnbExchangeRates());
+  }catch(error){
+    console.error("MNB exchange-rate request failed",error);
+    res.status(502).json({error:"MNB exchange rates unavailable"});
+  }
+}));
 
 app.get("/api/finance-transactions",requirePermission("page.flowDetails"),asyncRoute(async(req,res)=>{
   const startDate=String(req.query.startDate||""),endDate=String(req.query.endDate||"");

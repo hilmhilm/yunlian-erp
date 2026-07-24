@@ -10,7 +10,7 @@ import {
   ApiError, clearStoredSession, createCustomer as createCustomerRequest, createInvoice as createInvoiceRequest, deleteCategory as deleteCategoryRequest, deleteCategoryImage as deleteCategoryImageRequest, deleteCustomer as deleteCustomerRequest, deleteInvoice as deleteInvoiceRequest, deleteProduct as deleteProductRequest, deleteProducts as deleteProductsRequest, deleteProductImage as deleteProductImageRequest, deletePurchase as deletePurchaseRequest, deleteSale as deleteSaleRequest, deleteUser as deleteUserRequest,
   createCategory as createCategoryRequest, createFinanceTransaction as createFinanceTransactionRequest, createProduct as createProductRequest, createPurchase as createPurchaseRequest, createUser as createUserRequest,
   createSale as createSaleRequest, createSalePayment as createSalePaymentRequest, fetchCategories, fetchCurrentUser, fetchCustomers, fetchDashboard, fetchPickingSale, fetchPickingSales, fetchProduct, fetchProducts, fetchSale,
-  correctInvoice as correctInvoiceRequest, fetchAuditLogs, fetchBusinessReport, fetchFinanceTransactions, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchPurchases, fetchReportSummary, fetchRolePermissions, fetchSales, fetchSettings, fetchUsers, getStoredSession, importCategories as importCategoriesRequest, importProducts as importProductsRequest, stornoInvoice as stornoInvoiceRequest,
+  correctInvoice as correctInvoiceRequest, fetchAuditLogs, fetchBusinessReport, fetchFinanceTransactions, fetchInvoice, fetchInvoicePdf, fetchInvoices, fetchMnbExchangeRates, fetchPurchases, fetchReportSummary, fetchRolePermissions, fetchSales, fetchSettings, fetchUsers, getStoredSession, importCategories as importCategoriesRequest, importProducts as importProductsRequest, stornoInvoice as stornoInvoiceRequest,
   login as loginRequest, storeSession, updateCategory as updateCategoryRequest, updateCustomer as updateCustomerRequest, updateInventory as updateInventoryRequest, updateInventoryLocation as updateInventoryLocationRequest, updateProduct as updateProductRequest, updateRolePermissions as updateRolePermissionsRequest, uploadCategoryImage as uploadCategoryImageRequest, uploadProductImage as uploadProductImageRequest, updateSale as updateSaleRequest, updateSaleNotes as updateSaleNotesRequest, updateSaleStatus as updateSaleStatusRequest, updateSettings as updateSettingsRequest, updateUser as updateUserRequest,
 } from "./api.js";
 
@@ -47,7 +47,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.24-2";
+const uiVersion = "2026.07.24-3";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -90,7 +90,7 @@ function Login({ onLogin }) {
   </div>;
 }
 
-function Sidebar({ page, setPage, open, setOpen, user, settings }) {
+function Sidebar({ page, setPage, open, setOpen, user, mnbRates }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(["goods", "sales"]);
   const toggle = (label) => setExpanded(v => v.includes(label) ? v.filter(x=>x!==label) : [...v, label]);
@@ -106,7 +106,7 @@ function Sidebar({ page, setPage, open, setOpen, user, settings }) {
         {isOpen && <div className="subnav">{item.children.map((child,j)=><button key={j} className={page===child.id?"active":""} onClick={()=>{setPage(child.id);setOpen(false)}}>{t(child.labelKey)}</button>)}</div>}
       </div>;
     })}</nav>
-    <div className="exchange">EUR/HUF: {Number(settings.eurHufRate).toLocaleString(undefined,{maximumFractionDigits:4})}<br/>USD/HUF: {Number(settings.usdHufRate).toLocaleString(undefined,{maximumFractionDigits:4})}<br/>UI {uiVersion}</div>
+    <div className="exchange" title={t("mnbRateDisplayOnly")}><b>{t("mnbLatestRate")}</b><br/>EUR/HUF: {mnbRates?Number(mnbRates.eurHuf).toLocaleString(undefined,{maximumFractionDigits:4}):"—"}<br/>USD/HUF: {mnbRates?Number(mnbRates.usdHuf).toLocaleString(undefined,{maximumFractionDigits:4}):"—"}<br/><small>{mnbRates?.date?`${t("mnbRateDate")} ${mnbRates.date}`:mnbRates===null?t("mnbRateUnavailable"):t("loading")}</small><br/>UI {uiVersion}</div>
   </aside>;
 }
 
@@ -929,10 +929,11 @@ export function App() {
   const [dashboardSummary,setDashboardSummary]=useState(null),[reportSummary,setReportSummary]=useState(null);
   const [rolePermissions,setRolePermissions]=useState({});
   const [dataLoading,setDataLoading]=useState(false),[dataError,setDataError]=useState("");
+  const [mnbExchangeRates,setMnbExchangeRates]=useState(undefined);
   useEffect(()=>{const close=()=>setMenuOpen(false);window.addEventListener("resize",close);return()=>window.removeEventListener("resize",close)},[]);
   const openPage=nextPage=>{if(session?.user&&!canAccess(session.user,nextPage))return;setOpenTabs(current=>current.includes(nextPage)?current:[...current,nextPage]);setPage(nextPage)};
   const closePage=(tab,event)=>{event?.stopPropagation();if(tab==="dashboard"||tab==="noAccess")return;setOpenTabs(current=>{const index=current.indexOf(tab),next=current.filter(item=>item!==tab);if(page===tab)setPage(next[Math.max(0,index-1)]||"dashboard");return next});if(tab==="scanSales")setEditingSale(null);if(tab==="saleSettlement"){setSettlementSale(null);setSettlementError("")}if(tab==="deliveryNote"||tab==="pickingNote"){setDeliverySale(null);setDeliveryError("")}};
-  const logout=()=>{clearStoredSession();setSession(null);setPage("dashboard");setOpenTabs(["dashboard"]);setProducts([]);setCategoryRecords([]);setCustomers([]);setPurchases([]);setSales([]);setPickingSales([]);setInvoices([]);setUsers([]);setRolePermissions({});setSystemSettings(defaultSystemSettings);setEditingSale(null);setSettlementSale(null);setDeliverySale(null);setSalesFilters(defaultSalesFilters());setPickingFilters(defaultSalesFilters())};
+  const logout=()=>{clearStoredSession();setSession(null);setPage("dashboard");setOpenTabs(["dashboard"]);setProducts([]);setCategoryRecords([]);setCustomers([]);setPurchases([]);setSales([]);setPickingSales([]);setInvoices([]);setUsers([]);setRolePermissions({});setSystemSettings(defaultSystemSettings);setMnbExchangeRates(undefined);setEditingSale(null);setSettlementSale(null);setDeliverySale(null);setSalesFilters(defaultSalesFilters());setPickingFilters(defaultSalesFilters())};
   const handleError=(error)=>{if(error instanceof ApiError&&error.status===401){logout();return}setDataError(error.message)};
   const loadAll=async(token=session?.token)=>{
     if(!token)return;
@@ -974,6 +975,15 @@ export function App() {
   const refreshDashboard=()=>hasPermission(session?.user,"page.dashboard")?fetchDashboard(session.token):Promise.resolve(dashboardSummary);
   const refreshPickingData=()=>hasPermission(session?.user,"page.pickingLists")?fetchPickingSales(session.token,pickingFilters):Promise.resolve(pickingSales);
   useEffect(()=>{if(session?.token)loadAll(session.token)},[session?.token]);
+  useEffect(()=>{
+    if(!session?.token)return;
+    let cancelled=false;
+    const refresh=()=>fetchMnbExchangeRates(session.token).then(rates=>{if(!cancelled)setMnbExchangeRates(rates)}).catch(()=>{if(!cancelled)setMnbExchangeRates(current=>current===undefined?null:current)});
+    setMnbExchangeRates(undefined);
+    refresh();
+    const interval=setInterval(refresh,15*60*1000);
+    return()=>{cancelled=true;clearInterval(interval)};
+  },[session?.token]);
   const login=async(username,password)=>{const next=await loginRequest(username,password);storeSession(next);setSession(next)};
   const syncCategories=async()=>{const next=await fetchCategories(session.token);setCategoryRecords(next);return next};
   const addProduct=async(product)=>{const created=await createProductRequest(session.token,product);setProducts(current=>[created,...current]);const [,nextDashboard,nextReport]=await Promise.all([syncCategories(),refreshDashboard(),refreshReport()]);setDashboardSummary(nextDashboard);setReportSummary(nextReport)};
@@ -1051,5 +1061,5 @@ export function App() {
     auditLogs:<AuditLogPage token={session.token}/>,
     settings:<SettingsPage currentUser={session.user} settings={systemSettings} onSaveSettings={saveSystemSettings} onOpenEmployees={()=>openPage("users")} editable={hasPermission(session.user,"settings.manage")}/>
   };
-  return <div className="app-shell"><Sidebar page={page} setPage={openPage} open={menuOpen} setOpen={setMenuOpen} user={session.user} settings={systemSettings}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} tabs={openTabs} onSelectTab={openPage} onCloseTab={closePage} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/><div className="tab-pages">{openTabs.map(tab=><section key={tab} className="tab-page" hidden={page!==tab} aria-hidden={page!==tab}>{contentByTarget[pageTargets[tab]||tab]}</section>)}</div></main></div>;
+  return <div className="app-shell"><Sidebar page={page} setPage={openPage} open={menuOpen} setOpen={setMenuOpen} user={session.user} mnbRates={mnbExchangeRates}/>{menuOpen&&<button className="sidebar-scrim" aria-label="关闭菜单" onClick={()=>setMenuOpen(false)}/>}<main className="main-shell"><Header page={page} tabs={openTabs} onSelectTab={openPage} onCloseTab={closePage} user={session.user.username} onLogout={logout} toggleMenu={()=>setMenuOpen(v=>!v)}/><div className="tab-pages">{openTabs.map(tab=><section key={tab} className="tab-page" hidden={page!==tab} aria-hidden={page!==tab}>{contentByTarget[pageTargets[tab]||tab]}</section>)}</div></main></div>;
 }

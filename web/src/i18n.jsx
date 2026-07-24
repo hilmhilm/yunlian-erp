@@ -287,6 +287,9 @@ Object.assign(messages.hu,{movement_inventory_adjustment:"Készletkorrekció"});
 Object.assign(messages["zh-CN"],{searchPurchases:"搜索入库单号或供货商",purchaseOrderNo:"入库单号",purchaseCreatedAt:"建单时间",totalQuantity:"总数",purchaseStatus:"审核",purchaseReceived:"已入库"});
 Object.assign(messages.en,{searchPurchases:"Search receipt number or supplier",purchaseOrderNo:"Receipt number",purchaseCreatedAt:"Created at",totalQuantity:"Total quantity",purchaseStatus:"Status",purchaseReceived:"Received"});
 Object.assign(messages.hu,{searchPurchases:"Bevételezési szám vagy beszállító keresése",purchaseOrderNo:"Bevételezési szám",purchaseCreatedAt:"Létrehozva",totalQuantity:"Összmennyiség",purchaseStatus:"Állapot",purchaseReceived:"Bevételezve"});
+Object.assign(messages["zh-CN"],{mnbLatestRate:"MNB 最新官方汇率",mnbRateDate:"发布日期",mnbRateUnavailable:"暂时无法读取",mnbRateDisplayOnly:"此汇率仅用于展示，不会替换系统设置中的业务汇率。"});
+Object.assign(messages.en,{mnbLatestRate:"Latest official MNB rates",mnbRateDate:"Published",mnbRateUnavailable:"Temporarily unavailable",mnbRateDisplayOnly:"Display only. These rates do not replace the configured business exchange rates."});
+Object.assign(messages.hu,{mnbLatestRate:"Legfrissebb hivatalos MNB-árfolyam",mnbRateDate:"Közzétéve",mnbRateUnavailable:"Átmenetileg nem érhető el",mnbRateDisplayOnly:"Csak tájékoztató adat; nem módosítja a rendszerben beállított üzleti árfolyamokat."});
 
 const LocaleContext = createContext(null);
 
