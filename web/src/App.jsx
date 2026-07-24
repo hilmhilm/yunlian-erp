@@ -47,7 +47,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.24-1";
+const uiVersion = "2026.07.24-2";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -417,7 +417,7 @@ function Purchases({ purchases, products, onCreate, onDelete, onRefresh, loading
   const { t } = useI18n();
   const [search,setSearch]=useState(""),[modal,setModal]=useState(false);
   const rows=purchases.filter(x=>`${x.id}${x.supplier}`.toLowerCase().includes(search.toLowerCase()));
-  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder="搜索入库单号或供货商"/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={rows} columns={[{key:"id",label:"入库单号"},{key:"date",label:"建单时间"},{key:"supplier",label:"供货商"},{key:"quantity",label:"总数"},{key:"total",label:"采购总价"},{key:"status",label:"审核"}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已入库"?"done":"pending"}`}>{r.status}</span>:r[c.key]} onDelete={canDelete?row=>onDelete(row.databaseId):undefined}/>{modal&&<PurchaseModal products={products} defaultWarehouse={defaultWarehouse} onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
+  return <Page><Toolbar search={search} setSearch={setSearch} onAdd={canCreate?()=>setModal(true):undefined} onSearch={()=>{}} onRefresh={onRefresh} busy={loading} placeholder={t("searchPurchases")}/>{error&&<div className="form-error">{t("dataLoadFailed")}：{error}</div>}<DataTable rows={rows} columns={[{key:"id",label:t("purchaseOrderNo")},{key:"date",label:t("purchaseCreatedAt")},{key:"supplier",label:t("supplier")},{key:"quantity",label:t("totalQuantity")},{key:"total",label:t("purchaseTotal")},{key:"status",label:t("purchaseStatus")}]} renderCell={(r,c)=>c.key==="total"?money(r.total):c.key==="status"?<span className={`status ${r.status==="已入库"?"done":"pending"}`}>{r.status==="已入库"?t("purchaseReceived"):r.status}</span>:r[c.key]} onDelete={canDelete?row=>onDelete(row.databaseId):undefined}/>{modal&&<PurchaseModal products={products} defaultWarehouse={defaultWarehouse} onClose={()=>setModal(false)} onSave={async data=>{await onCreate(data);setModal(false)}}/>}</Page>;
 }
 
 function PurchaseModal({products,onClose,onSave,defaultWarehouse}) {

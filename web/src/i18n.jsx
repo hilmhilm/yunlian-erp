@@ -284,6 +284,9 @@ Object.assign(messages.hu,{permissionInventoryLocations:"Csak a raktárhely mód
 Object.assign(messages["zh-CN"],{movement_inventory_adjustment:"盘点调整"});
 Object.assign(messages.en,{movement_inventory_adjustment:"Inventory adjustment"});
 Object.assign(messages.hu,{movement_inventory_adjustment:"Készletkorrekció"});
+Object.assign(messages["zh-CN"],{searchPurchases:"搜索入库单号或供货商",purchaseOrderNo:"入库单号",purchaseCreatedAt:"建单时间",totalQuantity:"总数",purchaseStatus:"审核",purchaseReceived:"已入库"});
+Object.assign(messages.en,{searchPurchases:"Search receipt number or supplier",purchaseOrderNo:"Receipt number",purchaseCreatedAt:"Created at",totalQuantity:"Total quantity",purchaseStatus:"Status",purchaseReceived:"Received"});
+Object.assign(messages.hu,{searchPurchases:"Bevételezési szám vagy beszállító keresése",purchaseOrderNo:"Bevételezési szám",purchaseCreatedAt:"Létrehozva",totalQuantity:"Összmennyiség",purchaseStatus:"Állapot",purchaseReceived:"Bevételezve"});
 
 const LocaleContext = createContext(null);
 

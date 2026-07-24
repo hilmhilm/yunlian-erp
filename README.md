@@ -75,6 +75,8 @@
 
 DS1517+ 与 DSM 7.1.1 用户请优先阅读 [`README-DS1517+.md`](README-DS1517+.md)，并使用 `docker-compose.ds1517.yml`。
 
+当前 UI 版本为 `2026.07.24-2`。入库单列表的搜索提示、表头和入库状态已完整支持简体中文、英语和匈牙利语。
+
 1. 将整个 `erp-nas` 目录上传到 NAS，例如 `/volume2/docker/erp-nas`。
 2. 将 `.env.example` 复制为 `.env`，替换其中所有密码和密钥。
 3. 在 Container Manager 新建“项目”，来源选择此目录中的 `docker-compose.yml`。
