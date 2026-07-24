@@ -47,7 +47,7 @@ const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:pr
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.23-8";
+const uiVersion = "2026.07.24-1";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -117,16 +117,13 @@ function Header({ page, tabs, onSelectTab, onCloseTab, user, onLogout, toggleMen
 
 function Stat({ icon: Icon, color, label, value, suffix }) { return <div className="stat-card"><div className="stat-icon" style={{color,background:`${color}18`}}><Icon size={31}/></div><div><small>{label}</small><strong>{value}</strong><span>{suffix}</span></div></div>; }
 
-function Dashboard({ products, customers, sales, summary, setPage, lowStockThreshold=20 }) {
+function Dashboard({ products, customers, sales, summary, setPage }) {
   const stock=summary?.products.stock??products.reduce((s,p)=>s+p.stock,0),revenue=summary?.sales.totals||{HUF:0,EUR:0,USD:0};
   return <div className="page-content">
     <div className="smart-actions"><button className="outline danger">智能采购 推荐进货: 51</button><button className="outline success">推荐供货商</button><button className="outline" onClick={()=>setPage("reports")}>新老板视图</button></div>
     <div className="stats-grid"><Stat icon={Boxes} color="#26b99a" label="货物" value={summary?.products.count ?? products.length} suffix="种商品"/><Stat icon={ShoppingCart} color="#3f9fea" label="今日销售" value={money(revenue.HUF,"HUF")} suffix={`${money(revenue.EUR,"EUR")} · ${money(revenue.USD,"USD")} · ${summary?.sales.count??0} 笔`}/><Stat icon={CircleDollarSign} color="#f05a78" label="库存成本" value={money(products.reduce((s,p)=>s+p.stock*p.cost*390,0))} suffix={`${stock} 件库存`}/><Stat icon={Users} color="#42c7c7" label="客户" value={summary?.customers.count ?? customers.length} suffix="活跃客户"/></div>
     <div className="quick-row"><button onClick={()=>setPage("purchases")}><ArrowDownToLine/>新品入库</button><button onClick={()=>setPage("scanSales")}><ScanLine/>扫码销售</button><button onClick={()=>setPage("reports")}><WalletCards/>财务</button><button onClick={()=>setPage("reports")}><BarChart3/>销售报表</button></div>
     <div className="dashboard-grid"><section className="panel chart-panel"><div className="panel-title">近 7 日销售趋势</div><div className="bar-chart">{[42,58,37,72,66,89,76].map((h,i)=><div key={i}><span style={{height:`${h}%`}}></span><small>{i+7}日</small></div>)}</div></section><section className="panel"><div className="panel-title">最近销售</div><CompactTable rows={sales.slice(0,6)} columns={["id","qty","total","customer"]}/></section></div>
-    <div className="rank-grid">{[
-      ["7天热销数量",products.slice(0,3)],["7天热销金额",products.slice(1,4)],["7天热销利润",products.slice(2,5)],["7天库存预警",products.filter(p=>p.stock<=lowStockThreshold)]
-    ].map(([title,items])=><section className="rank-card" key={title}><div className="panel-title">{title}<ChevronDown size={15}/></div>{items.map((p,i)=><div className="rank-line" key={p.id}><b>{i+1}</b><span>{p.sku} {p.name}</span><em>{p.stock}</em></div>)}</section>)}</div>
   </div>;
 }
 
@@ -1034,7 +1031,7 @@ export function App() {
   if(!session?.user)return <Login onLogin={login}/>;
   const contentByTarget={
     noAccess:<Page><section className="panel empty"><h2>{t("noAccessiblePages")}</h2><p>{t("contactAdministratorForAccess")}</p></section></Page>,
-    dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={openPage} lowStockThreshold={systemSettings.lowStockThreshold}/>,
+    dashboard:<Dashboard products={products} customers={customers} sales={sales} summary={dashboardSummary} setPage={openPage}/>,
     products:<Products products={products} categories={categoryRecords} onCreate={addProduct} onUpdate={changeProduct} onDelete={deleteProduct} onDeleteMany={deleteProducts} onImport={importProducts} onUploadImage={uploadProductImage} onDeleteImage={removeProductImage} onLoad={loadProducts} onLoadDetail={loadProductDetail} loading={dataLoading} error={dataError} canCreate={hasPermission(session.user,"products.manage")} canEdit={hasPermission(session.user,"products.manage")} canDelete={hasPermission(session.user,"products.delete")} canUpload={hasPermission(session.user,"products.images")} canExport={hasPermission(session.user,"products.export")} lowStockThreshold={systemSettings.lowStockThreshold}/>,
     categories:<CategoriesPage categories={categoryRecords} onCreate={addCategory} onUpdate={changeCategory} onDelete={deleteCategory} onImport={importCategories} onUploadImage={uploadCategoryImage} onDeleteImage={removeCategoryImage} canManage={hasPermission(session.user,"categories.manage")} canDelete={hasPermission(session.user,"categories.delete")} canExport={hasPermission(session.user,"categories.export")} loading={dataLoading} error={dataError}/>,
     purchases:<Purchases purchases={purchases} products={products} onCreate={addPurchase} onDelete={deletePurchase} onRefresh={refreshPurchases} loading={dataLoading} error={dataError} defaultWarehouse={systemSettings.defaultWarehouse} canCreate={hasPermission(session.user,"purchases.create")} canDelete={hasPermission(session.user,"purchases.delete")}/>,
