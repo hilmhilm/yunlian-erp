@@ -88,6 +88,13 @@ const requireRole = (...allowed) => (req, res, next) => allowed.includes(req.use
 const requirePermission = permission => (req,res,next) => req.user.role==="admin"||req.user.permissions.includes(permission)?next():res.status(403).json({error:"forbidden"});
 const requireAnyPermission = (...permissions) => (req,res,next) => req.user.role==="admin"||permissions.some(permission=>req.user.permissions.includes(permission))?next():res.status(403).json({error:"forbidden"});
 const getSystemSettings = async (client=pool) => (await client.query("select * from system_settings where id=true")).rows[0];
+const nextSalesOrderNumber = async (client,prefix) => {
+  const businessDate=(await client.query("select to_char(now() at time zone $1,'YYYYMMDD') value",[businessTimezone])).rows[0].value;
+  const base=`${prefix}${businessDate}-`;
+  await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))",[base]);
+  const result=await client.query(`select coalesce(max(case when substring(order_no from length($1)+1) ~ '^[0-9]+$' then substring(order_no from length($1)+1)::bigint end),0)+1 next_sequence from sales where left(order_no,length($1))=$1`,[base]);
+  return `${base}${result.rows[0].next_sequence}`;
+};
 const isoDatePattern=/^\d{4}-\d{2}-\d{2}$/;
 const validIsoDate=value=>isoDatePattern.test(value)&&!Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())&&new Date(`${value}T00:00:00Z`).toISOString().slice(0,10)===value;
 const invoiceRound=(value,currency)=>Number(Number(value).toFixed(currency==="HUF"?0:2));
@@ -886,7 +893,8 @@ app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,
     const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
     if(!settings.allow_overselling){const unavailable=pricedItems.find(item=>Number(productById.get(item.productId).stock)-item.quantity<0);if(unavailable){const error=new Error(`insufficient stock for product ${unavailable.productId}; overselling is disabled`);error.status=409;throw error}}
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[body.orderNo||`${settings.sales_order_prefix}${Date.now()}`,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
+    const orderNo=await nextSalesOrderNumber(client,settings.sales_order_prefix);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[orderNo,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
     for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale',$4,$5)",[item.productId,settings.default_warehouse,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
