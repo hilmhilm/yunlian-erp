@@ -3,7 +3,7 @@ import {
   BarChart3, Boxes, ChevronDown, CircleDollarSign, ClipboardList, Database,
   FileBarChart, FileText, Home, LogOut, Menu, Package, Plus, RefreshCw,
   ScanLine, Search, Settings, ShoppingCart, Tags, Truck, Users,
-  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Bell, Trash2, Clock3, Printer, Columns3, Download, Upload, Ban, FilePenLine, RotateCcw, ScrollText, KeyRound,
+  Warehouse, X, Check, Pencil, ArrowDownToLine, WalletCards, Trash2, Clock3, Printer, Columns3, Download, Upload, Ban, FilePenLine, RotateCcw, ScrollText, KeyRound,
 } from "lucide-react";
 import { useI18n } from "./i18n.jsx";
 import {
@@ -45,9 +45,10 @@ const currencies=[{code:"HUF",symbol:"Ft"},{code:"EUR",symbol:"€"},{code:"USD"
 const money=(n,currency="HUF")=>`${new Intl.NumberFormat("zh-CN",{minimumFractionDigits:currency==="HUF"?0:2,maximumFractionDigits:currency==="HUF"?0:2}).format(Number(n||0))} ${currencies.find(item=>item.code===currency)?.symbol||currency}`;
 const productPrice=(product,currency="HUF")=>Number({HUF:product.priceHuf,EUR:product.priceEur,USD:product.priceUsd}[currency]||0);
 const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-${String(date.getDate()).padStart(2,"0")}`;
+const businessDateTime = date => new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Budapest",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(date);
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.24-4";
+const uiVersion = "2026.07.25-1";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -112,7 +113,9 @@ function Sidebar({ page, setPage, open, setOpen, user, mnbRates }) {
 
 function Header({ page, tabs, onSelectTab, onCloseTab, user, onLogout, toggleMenu }) {
   const { t, locale, setLocale, locales } = useI18n();
-  return <><header className="header"><button className="icon-btn menu-btn" onClick={toggleMenu}><Menu size={23}/></button><b>{t(pageNames[page])}</b><div className="header-spacer"/><span className="date">2026-07-13 09:24</span><select className="language-select" aria-label="Language" value={locale} onChange={e=>setLocale(e.target.value)}>{locales.map(l=><option key={l.code} value={l.code}>{l.label}</option>)}</select><button className="icon-btn"><Bell size={19}/><i>1</i></button><div className="user-chip">{user}<ChevronDown size={13}/></div><button title={t("logout")} className="icon-btn" onClick={onLogout}><LogOut size={18}/></button></header><nav className="tabs" aria-label={t("openPages")}>{tabs.map(tab=><div key={tab} className={`page-tab ${page===tab?"active":""}`}><button type="button" className="page-tab-label" onClick={()=>onSelectTab(tab)}>{page===tab&&<span className="page-tab-dot"/>}{t(pageNames[tab])}</button>{tab!=="dashboard"&&<button type="button" className="page-tab-close" title={`${t("closePage")}：${t(pageNames[tab])}`} aria-label={`${t("closePage")}：${t(pageNames[tab])}`} onClick={event=>onCloseTab(tab,event)}><X size={13}/></button>}</div>)}</nav></>;
+  const [now,setNow]=useState(()=>new Date());
+  useEffect(()=>{const interval=setInterval(()=>setNow(new Date()),1000);return()=>clearInterval(interval)},[]);
+  return <><header className="header"><button className="icon-btn menu-btn" onClick={toggleMenu}><Menu size={23}/></button><b>{t(pageNames[page])}</b><div className="header-spacer"/><span className="date">{businessDateTime(now)}</span><select className="language-select" aria-label="Language" value={locale} onChange={e=>setLocale(e.target.value)}>{locales.map(l=><option key={l.code} value={l.code}>{l.label}</option>)}</select><div className="user-chip">{user}<ChevronDown size={13}/></div><button title={t("logout")} className="icon-btn" onClick={onLogout}><LogOut size={18}/></button></header><nav className="tabs" aria-label={t("openPages")}>{tabs.map(tab=><div key={tab} className={`page-tab ${page===tab?"active":""}`}><button type="button" className="page-tab-label" onClick={()=>onSelectTab(tab)}>{page===tab&&<span className="page-tab-dot"/>}{t(pageNames[tab])}</button>{tab!=="dashboard"&&<button type="button" className="page-tab-close" title={`${t("closePage")}：${t(pageNames[tab])}`} aria-label={`${t("closePage")}：${t(pageNames[tab])}`} onClick={event=>onCloseTab(tab,event)}><X size={13}/></button>}</div>)}</nav></>;
 }
 
 function Stat({ icon: Icon, color, label, value, suffix }) { return <div className="stat-card"><div className="stat-icon" style={{color,background:`${color}18`}}><Icon size={31}/></div><div><small>{label}</small><strong>{value}</strong><span>{suffix}</span></div></div>; }
