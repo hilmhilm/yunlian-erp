@@ -48,7 +48,7 @@ const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date
 const businessDateTime = date => new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Budapest",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(date);
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.25-1";
+const uiVersion = "2026.07.25-2";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -124,7 +124,6 @@ function Dashboard({ products, customers, sales, summary, setPage }) {
   const {t}=useI18n();
   const stock=summary?.products.stock??products.reduce((s,p)=>s+p.stock,0),revenue=summary?.sales.totals||{HUF:0,EUR:0,USD:0};
   return <div className="page-content">
-    <div className="smart-actions"><button className="outline danger">{t("smartPurchaseRecommendation")}</button><button className="outline success">{t("recommendedSupplier")}</button><button className="outline" onClick={()=>setPage("reports")}>{t("ownerView")}</button></div>
     <div className="stats-grid"><Stat icon={Boxes} color="#26b99a" label={t("goods")} value={summary?.products.count ?? products.length} suffix={t("productTypes")}/><Stat icon={ShoppingCart} color="#3f9fea" label={t("todaySales")} value={money(revenue.HUF,"HUF")} suffix={`${money(revenue.EUR,"EUR")} · ${money(revenue.USD,"USD")} · ${summary?.sales.count??0} ${t("salesOrders")}`}/><Stat icon={CircleDollarSign} color="#f05a78" label={t("inventoryCost")} value={money(products.reduce((s,p)=>s+p.stock*p.cost*390,0))} suffix={t("inventoryPieces").replace("{count}",stock)}/><Stat icon={Users} color="#42c7c7" label={t("customers")} value={summary?.customers.count ?? customers.length} suffix={t("activeCustomers")}/></div>
     <div className="quick-row"><button onClick={()=>setPage("purchases")}><ArrowDownToLine/>{t("newArrival")}</button><button onClick={()=>setPage("scanSales")}><ScanLine/>{t("scanSales")}</button><button onClick={()=>setPage("reports")}><WalletCards/>{t("finance")}</button><button onClick={()=>setPage("reports")}><BarChart3/>{t("salesReport")}</button></div>
     <div className="dashboard-grid"><section className="panel chart-panel"><div className="panel-title">{t("sevenDayTrend")}</div><div className="bar-chart">{[42,58,37,72,66,89,76].map((h,i)=><div key={i}><span style={{height:`${h}%`}}></span><small>{t("dayNumber").replace("{day}",i+7)}</small></div>)}</div></section><section className="panel"><div className="panel-title">{t("recentSales")}</div><CompactTable rows={sales.slice(0,6)} columns={["id","qty","total","customer"]}/></section></div>
