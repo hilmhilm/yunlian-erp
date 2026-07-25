@@ -295,16 +295,20 @@ app.put("/api/role-permissions/:role",requireRole("admin"),asyncRoute(async(req,
 }));
 
 app.get("/api/dashboard", requirePermission("page.dashboard"), asyncRoute(async (_req, res) => {
-  const [products, customers, sales, returns, purchases] = await Promise.all([
+  const [products, customers, sales, returns, purchases, trend] = await Promise.all([
     pool.query("select count(*)::int count, coalesce(sum(stock),0)::int stock from products where deleted_at is null"),
     pool.query("select count(*)::int count from customers where deleted_at is null"),
     pool.query("select count(*)::int count,coalesce(sum(total) filter(where currency='HUF'),0)::numeric total_huf,coalesce(sum(total) filter(where currency='EUR'),0)::numeric total_eur,coalesce(sum(total) filter(where currency='USD'),0)::numeric total_usd from sales where deleted_at is null and created_at::date=current_date"),
     pool.query("select coalesce(sum(sr.total) filter(where s.currency='HUF'),0)::numeric total_huf,coalesce(sum(sr.total) filter(where s.currency='EUR'),0)::numeric total_eur,coalesce(sum(sr.total) filter(where s.currency='USD'),0)::numeric total_usd from sale_returns sr join sales s on s.id=sr.sale_id where s.deleted_at is null and sr.created_at::date=current_date"),
-    pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where deleted_at is null and created_at::date=current_date")
+    pool.query("select count(*)::int count, coalesce(sum(total),0)::numeric total from purchases where deleted_at is null and created_at::date=current_date"),
+    pool.query(`select to_char(days.day,'YYYY-MM-DD') date,count(s.id)::int count
+      from generate_series((now() at time zone $1)::date-6,(now() at time zone $1)::date,interval '1 day') days(day)
+      left join sales s on s.deleted_at is null and (s.created_at at time zone $1)::date=days.day
+      group by days.day order by days.day`,[businessTimezone])
   ]);
   const saleTotals={...sales.rows[0]};
   for(const currency of ["huf","eur","usd"])saleTotals[`total_${currency}`]=Number(saleTotals[`total_${currency}`])-Number(returns.rows[0][`total_${currency}`]);
-  res.json({ products: products.rows[0], customers: customers.rows[0], sales: saleTotals, purchases: purchases.rows[0] });
+  res.json({ products: products.rows[0], customers: customers.rows[0], sales: saleTotals, purchases: purchases.rows[0], trend: trend.rows });
 }));
 
 app.get("/api/categories", requireAnyPermission("page.products","page.categories","page.reports","page.dashboard"), asyncRoute(async (_req,res)=>{

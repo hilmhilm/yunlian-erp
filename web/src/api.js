@@ -479,6 +479,7 @@ export async function fetchDashboard(token) {
     customers: { count: Number(data.customers.count || 0) },
     sales: { count: Number(data.sales.count || 0), totals: { HUF:Number(data.sales.total_huf??data.sales.total??0),EUR:Number(data.sales.total_eur||0),USD:Number(data.sales.total_usd||0) } },
     purchases: { count: Number(data.purchases.count || 0), total: Number(data.purchases.total || 0) },
+    trend: Array.isArray(data.trend) ? data.trend.map(row=>({date:String(row.date||""),count:Number(row.count||0)})) : [],
   };
 }
 
