@@ -324,6 +324,30 @@ Object.assign(messages.hu,{
   productImportRequiredFields:"A cikkszám és a terméknév kötelező. A csomag- és dobozméret alapértéke 1, a bevételezési statisztikáé 0.",
   permissionProductsManage:"Termékek létrehozása és szerkesztése"
 });
+Object.assign(messages["zh-CN"],{
+  productImportHelp:"支持 .xlsx 文件及表格内嵌缩略图。新产品会完整新增；货号或条码已存在时，只把当前库存更新为 Excel 中的库存，其他产品资料和原图片保持不变。",
+  productImportStockTip:"库存列可不填，默认为 0，也允许填写负整数。新产品的非零库存生成初始库存流水；已有产品按新旧库存差额生成调整流水。",
+  importAction:"导入动作",createNewProduct:"新增产品",updateExistingStockOnly:"仅更新已有产品库存",
+  productImportReadyWithUpdates:"已检查 {count} 行，其中 {updates} 行将只更新库存；新产品可导入 {images} 张缩略图。",
+  productImportSuccessWithUpdates:"已新增 {created} 个产品，更新 {updated} 个已有产品的库存，并导入 {images} 张缩略图。",
+  productImportIdentityConflict:"货号和条码分别属于两个不同的已有产品"
+});
+Object.assign(messages.en,{
+  productImportHelp:"Supports .xlsx files with embedded thumbnails. New products are created in full. If the SKU or barcode already exists, only current stock is replaced with the Excel value; all other product data and the existing image remain unchanged.",
+  productImportStockTip:"Stock is optional (default 0) and may be negative. Nonzero stock for a new product creates an opening movement; an existing product creates an adjustment for the difference.",
+  importAction:"Import action",createNewProduct:"Create product",updateExistingStockOnly:"Update existing stock only",
+  productImportReadyWithUpdates:"{count} rows checked; {updates} will update stock only. {images} thumbnails can be imported for new products.",
+  productImportSuccessWithUpdates:"Created {created} products, updated stock for {updated} existing products, and imported {images} thumbnails.",
+  productImportIdentityConflict:"The SKU and barcode belong to two different existing products"
+});
+Object.assign(messages.hu,{
+  productImportHelp:"Beágyazott bélyegképeket tartalmazó .xlsx fájlokat támogat. Az új termékek teljes adattartalommal jönnek létre. Ha a cikkszám vagy vonalkód már létezik, csak a jelenlegi készlet változik az Excel értékére; minden más adat és a meglévő kép változatlan marad.",
+  productImportStockTip:"A készlet elhagyható (alapérték 0), és negatív is lehet. Új terméknél nyitómozgás, meglévő terméknél a különbözetnek megfelelő készletkorrekció készül.",
+  importAction:"Importművelet",createNewProduct:"Új termék",updateExistingStockOnly:"Csak meglévő készlet frissítése",
+  productImportReadyWithUpdates:"{count} sor ellenőrizve; {updates} csak készletet frissít. Új termékekhez {images} bélyegkép importálható.",
+  productImportSuccessWithUpdates:"{created} termék létrehozva, {updated} meglévő termék készlete frissítve, {images} bélyegkép importálva.",
+  productImportIdentityConflict:"A cikkszám és a vonalkód két különböző meglévő termékhez tartozik"
+});
 
 const LocaleContext = createContext(null);
 

@@ -447,13 +447,7 @@ app.post("/api/products/import", requireRole("admin"), asyncRoute(async (req,res
   }));
   const errors=[];
   for(const product of products){
-    if(!product.sku)errors.push(`row ${product.row}: SKU is required`);
-    if(!product.name)errors.push(`row ${product.row}: product name is required`);
-    if(!Number.isSafeInteger(product.boxSize)||product.boxSize<=0)errors.push(`row ${product.row}: box size must be a positive integer`);
-    if(!Number.isSafeInteger(product.packageSize)||product.packageSize<=0)errors.push(`row ${product.row}: package size must be a positive integer`);
-    if([product.cost,product.priceHuf,product.priceEur,product.priceUsd].some(value=>!Number.isFinite(value)||value<0))errors.push(`row ${product.row}: prices and cost must be non-negative numbers`);
     if(!Number.isSafeInteger(product.stock))errors.push(`row ${product.row}: stock must be an integer`);
-    if(!Number.isSafeInteger(product.purchaseQuantity)||product.purchaseQuantity<0)errors.push(`row ${product.row}: inbound statistics must be a non-negative integer`);
   }
   const duplicateRows=(field,label)=>{
     const seen=new Map();
@@ -464,9 +458,24 @@ app.post("/api/products/import", requireRole("admin"), asyncRoute(async (req,res
   const client=await pool.connect();
   try{
     await client.query("begin");
+    const skus=products.map(product=>product.sku.toLocaleLowerCase()).filter(Boolean),barcodes=products.map(product=>product.barcode.toLocaleLowerCase()).filter(Boolean);
+    const existing=(await client.query("select * from products where deleted_at is null and (lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[]))) for update",[skus,barcodes])).rows;
+    const existingBySku=new Map(existing.map(row=>[String(row.sku).toLocaleLowerCase(),row])),existingByBarcode=new Map(existing.filter(row=>row.barcode).map(row=>[String(row.barcode).toLocaleLowerCase(),row]));
+    for(const product of products){
+      const skuMatch=product.sku?existingBySku.get(product.sku.toLocaleLowerCase()):null,barcodeMatch=product.barcode?existingByBarcode.get(product.barcode.toLocaleLowerCase()):null;
+      if(skuMatch&&barcodeMatch&&Number(skuMatch.id)!==Number(barcodeMatch.id))errors.push(`row ${product.row}: SKU and barcode belong to different existing products`);
+      product.existing=skuMatch||barcodeMatch||null;
+      if(product.existing)continue;
+      if(!product.sku)errors.push(`row ${product.row}: SKU is required`);
+      if(!product.name)errors.push(`row ${product.row}: product name is required`);
+      if(!Number.isSafeInteger(product.boxSize)||product.boxSize<=0)errors.push(`row ${product.row}: box size must be a positive integer`);
+      if(!Number.isSafeInteger(product.packageSize)||product.packageSize<=0)errors.push(`row ${product.row}: package size must be a positive integer`);
+      if([product.cost,product.priceHuf,product.priceEur,product.priceUsd].some(value=>!Number.isFinite(value)||value<0))errors.push(`row ${product.row}: prices and cost must be non-negative numbers`);
+      if(!Number.isSafeInteger(product.purchaseQuantity)||product.purchaseQuantity<0)errors.push(`row ${product.row}: inbound statistics must be a non-negative integer`);
+    }
     const categories=(await client.query("select id,parent_id,name from product_categories where deleted_at is null")).rows,categoryByName=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row]));
     for(const product of products){
-      if(!product.category)continue;
+      if(product.existing||!product.category)continue;
       const parts=product.category.split(">").map(value=>value.trim());
       let category=null;
       if(parts.some(part=>!part))category=null;
@@ -477,19 +486,26 @@ app.post("/api/products/import", requireRole("admin"), asyncRoute(async (req,res
       }
       if(!category||parts.length>2)errors.push(`row ${product.row}: category path does not exist (${product.category})`);else product.category=category.name;
     }
-    const skus=products.map(product=>product.sku),barcodes=products.map(product=>product.barcode).filter(Boolean);
-    const existing=await client.query("select sku,barcode from products where deleted_at is null and (lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[])))",[skus.map(value=>value.toLocaleLowerCase()),barcodes.map(value=>value.toLocaleLowerCase())]);
-    const existingSkus=new Set(existing.rows.map(row=>String(row.sku).toLocaleLowerCase())),existingBarcodes=new Set(existing.rows.map(row=>String(row.barcode||"").toLocaleLowerCase()).filter(Boolean));
-    for(const product of products){if(existingSkus.has(product.sku.toLocaleLowerCase()))errors.push(`row ${product.row}: SKU already exists (${product.sku})`);if(product.barcode&&existingBarcodes.has(product.barcode.toLocaleLowerCase()))errors.push(`row ${product.row}: barcode already exists (${product.barcode})`)}
     if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
-    const settings=await getSystemSettings(client),created=[],importReference=`PRODUCT-IMPORT-${new Date().toISOString().replace(/\D/g,"").slice(0,14)}-${crypto.randomUUID().slice(0,8)}`;
+    const settings=await getSystemSettings(client),imported=[],createdSkus=[],importReference=`PRODUCT-IMPORT-${new Date().toISOString().replace(/\D/g,"").slice(0,14)}-${crypto.randomUUID().slice(0,8)}`;let createdCount=0,updatedCount=0;
     for(const product of products){
+      if(product.existing){
+        const delta=product.stock-Number(product.existing.stock),warehouse=product.existing.storage_warehouse||settings.default_warehouse;
+        const result=await client.query("update products set stock=$1,updated_at=now() where id=$2 returning *",[product.stock,product.existing.id]);
+        if(delta!==0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'inventory_adjustment',$4,$5)",[product.existing.id,warehouse,delta,importReference,req.user.username]);
+        const statistics=await client.query(productStatisticsSql,[product.existing.id]);
+        imported.push({...result.rows[0],...statistics.rows[0]});
+        updatedCount+=1;
+        continue;
+      }
       const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,package_size,cost,price,price_eur,price_usd,stock,imported_purchase_quantity,storage_warehouse) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.packageSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd,product.stock,product.purchaseQuantity,settings.default_warehouse]);
       if(product.stock!==0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'product_import',$4,$5)",[result.rows[0].id,settings.default_warehouse,product.stock,importReference,req.user.username]);
-      created.push({...result.rows[0],sales_quantity:0,purchase_quantity:product.purchaseQuantity});
+      imported.push({...result.rows[0],sales_quantity:0,purchase_quantity:product.purchaseQuantity});
+      createdSkus.push(product.sku.toLocaleLowerCase());
+      createdCount+=1;
     }
     await client.query("commit");
-    res.status(201).json({count:created.length,stockTotal:products.reduce((total,product)=>total+product.stock,0),products:created});
+    res.status(201).json({count:imported.length,createdCount,updatedCount,createdSkus,stockTotal:products.reduce((total,product)=>total+product.stock,0),products:imported});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 app.get("/api/products/:id", requireAnyPermission("page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (req,res)=>{
