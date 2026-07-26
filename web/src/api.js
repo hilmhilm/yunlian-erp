@@ -97,6 +97,8 @@ const normalizeCustomer = (customer) => ({
   group: customer.customer_group ?? customer.group ?? "",
   postalCode: customer.postal_code ?? customer.postalCode ?? "",
   taxNumber: customer.tax_number ?? customer.taxNumber ?? "",
+  vehiclePlate: customer.vehicle_plate ?? customer.vehiclePlate ?? "",
+  vehiclePlates: Array.isArray(customer.vehicle_plates ?? customer.vehiclePlates) ? (customer.vehicle_plates ?? customer.vehiclePlates).filter(Boolean) : [],
   country: customer.country || "Magyarország",
   email: customer.email || "",
 });

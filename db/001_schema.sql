@@ -25,7 +25,7 @@ create table if not exists product_translations (
   primary key(product_id,locale)
 );
 create table if not exists customers (
-  id bigserial primary key, name text not null, phone text default '', city text default '', address text default '',
+  id bigserial primary key, name text not null, phone text default '', vehicle_plate text not null default '', city text default '', address text default '',
   customer_group text default '零售', created_at timestamptz not null default now()
 );
 create table if not exists purchases (

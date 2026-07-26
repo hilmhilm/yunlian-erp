@@ -584,13 +584,15 @@ app.put("/api/products/:id/translations/:locale", requirePermission("products.ma
 
 app.get("/api/customers", requireAnyPermission("page.dashboard","page.customers","page.sales","page.scanSales","page.issueInvoice","page.reports"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
-  const result=await pool.query("select * from customers where deleted_at is null and (name ilike $1 or phone ilike $1 or city ilike $1 or tax_number ilike $1) order by id desc limit 500",[q]);
+  const result=await pool.query(`select c.*,coalesce((select array_agg(distinct trim(s.vehicle_plate)) from sales s where s.customer_id=c.id and s.deleted_at is null and nullif(trim(s.vehicle_plate),'') is not null),'{}'::text[]) vehicle_plates
+    from customers c where c.deleted_at is null and (c.name ilike $1 or c.phone ilike $1 or c.vehicle_plate ilike $1 or c.city ilike $1 or c.tax_number ilike $1 or exists(select 1 from sales s where s.customer_id=c.id and s.deleted_at is null and s.vehicle_plate ilike $1))
+    order by c.id desc limit 500`,[q]);
   res.json(result.rows);
 }));
 app.post("/api/customers", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},name=String(b.name||"").trim();
   if(!name)return res.status(400).json({error:"customer name is required"});
-  const result=await pool.query("insert into customers(name,phone,city,address,customer_group,country,postal_code,tax_number,email) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *",[name,String(b.phone||"").trim(),String(b.city||"").trim(),String(b.address||"").trim(),String(b.group||"零售").trim(),String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim()]);
+  const result=await pool.query("insert into customers(name,phone,vehicle_plate,city,address,customer_group,country,postal_code,tax_number,email) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *",[name,String(b.phone||"").trim(),String(b.vehiclePlate||"").trim().slice(0,50),String(b.city||"").trim(),String(b.address||"").trim(),String(b.group||"零售").trim(),String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim()]);
   res.status(201).json(result.rows[0]);
 }));
 app.patch("/api/customers/:id", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
@@ -598,7 +600,7 @@ app.patch("/api/customers/:id", requirePermission("customers.manage"), asyncRout
   if(!current)return res.status(404).json({error:"customer not found"});
   const value=(camel,column,max=500)=>String(b[camel]??current[column]??"").trim().slice(0,max),name=value("name","name",200);
   if(!name)return res.status(400).json({error:"customer name is required"});
-  const result=await pool.query("update customers set name=$1,phone=$2,city=$3,address=$4,customer_group=$5,country=$6,postal_code=$7,tax_number=$8,email=$9,updated_at=now() where id=$10 and deleted_at is null returning *",[name,value("phone","phone",100),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
+  const result=await pool.query("update customers set name=$1,phone=$2,vehicle_plate=$3,city=$4,address=$5,customer_group=$6,country=$7,postal_code=$8,tax_number=$9,email=$10,updated_at=now() where id=$11 and deleted_at is null returning *",[name,value("phone","phone",100),value("vehiclePlate","vehicle_plate",50),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
   res.json(result.rows[0]);
 }));
 app.delete("/api/customers/:id", requirePermission("customers.delete"), asyncRoute(async (req,res)=>{
