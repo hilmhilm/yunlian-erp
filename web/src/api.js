@@ -55,6 +55,7 @@ const normalizeProduct = (product) => ({
   ...product,
   name2: product.name2 || "",
   boxSize: Number(product.box_size ?? product.boxSize ?? 1),
+  packageSize: Number(product.package_size ?? product.packageSize ?? 1),
   cost: Number(product.cost || 0),
   price: Number(product.price || 0),
   priceHuf: Number(product.price ?? product.priceHuf ?? 0),

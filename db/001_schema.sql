@@ -1,6 +1,6 @@
 create table if not exists products (
   id bigserial primary key, sku text not null unique, barcode text default '', name text not null, name2 text not null default '',
-  category text default '', supplier text default '', unit text default '个', box_size integer not null default 1,
+  category text default '', supplier text default '', unit text default '个', box_size integer not null default 1, package_size integer not null default 1,
   cost numeric(14,2) not null default 0, price numeric(14,2) not null default 0, stock integer not null default 0, image_url text not null default '',
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
