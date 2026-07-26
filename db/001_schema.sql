@@ -1,7 +1,7 @@
 create table if not exists products (
   id bigserial primary key, sku text not null unique, barcode text default '', name text not null, name2 text not null default '',
   category text default '', supplier text default '', unit text default '个', box_size integer not null default 1, package_size integer not null default 1,
-  cost numeric(14,2) not null default 0, price numeric(14,2) not null default 0, stock integer not null default 0, image_url text not null default '',
+  cost numeric(14,2) not null default 0, price numeric(14,2) not null default 0, stock integer not null default 0, imported_purchase_quantity integer not null default 0, image_url text not null default '',
   created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create table if not exists product_categories (id bigserial primary key, parent_id bigint references product_categories(id) on delete restrict, name text not null, name2 text not null default '', image_url text not null default '', created_at timestamptz not null default now(), updated_at timestamptz not null default now(), check(parent_id is null or parent_id<>id));

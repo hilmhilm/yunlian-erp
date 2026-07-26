@@ -303,6 +303,28 @@ Object.assign(messages["zh-CN"],{productPackageSize:"包装数",productImportInv
 Object.assign(messages.en,{productPackageSize:"Units per package",productImportInvalidPackageSize:"Units per package must be a positive integer",invalidProductFields:"Enter a SKU and product name, then check package size, box size, cost and prices"});
 Object.assign(messages.hu,{productPackageSize:"Darab csomagonként",productImportInvalidPackageSize:"A csomagolási mennyiség pozitív egész szám legyen",invalidProductFields:"Adja meg a cikkszámot és a termék nevét, majd ellenőrizze a csomag- és dobozméretet, a költséget és az árakat"});
 
+Object.assign(messages["zh-CN"],{
+  productImportInvalidPurchaseQuantity:"入库统计必须是大于等于 0 的整数",
+  productImportCategoryTip:"分类可填写主分类名；有次级分类时使用“主分类 > 次级分类”，例如 Táska > Vászon Táska。分类必须已存在。",
+  productImportPurchaseQuantityTip:"入库统计可不填，默认为 0；它作为历史统计导入，不会增加当前库存或生成入库单。",
+  productImportRequiredFields:"货号和产品名称必填；包装数、箱装数留空默认为 1，入库统计留空默认为 0。",
+  permissionProductsManage:"新建和编辑产品"
+});
+Object.assign(messages.en,{
+  productImportInvalidPurchaseQuantity:"Inbound statistics must be a non-negative integer",
+  productImportCategoryTip:"Enter a main category, or use “Main > Subcategory”, for example Táska > Vászon Táska. The categories must already exist.",
+  productImportPurchaseQuantityTip:"Inbound statistics may be blank (default 0). It imports a historical statistic and does not change stock or create a receipt.",
+  productImportRequiredFields:"SKU and product name are required. Package and box sizes default to 1; inbound statistics defaults to 0.",
+  permissionProductsManage:"Create and edit products"
+});
+Object.assign(messages.hu,{
+  productImportInvalidPurchaseQuantity:"A bevételezési statisztika nemnegatív egész szám legyen",
+  productImportCategoryTip:"Adjon meg főkategóriát, vagy használja a „Főkategória > Alkategória” formátumot, például Táska > Vászon Táska. A kategóriáknak már létezniük kell.",
+  productImportPurchaseQuantityTip:"A bevételezési statisztika üresen hagyható (alapérték 0). Történeti adatként kerül be, nem módosítja a készletet és nem hoz létre bevételezést.",
+  productImportRequiredFields:"A cikkszám és a terméknév kötelező. A csomag- és dobozméret alapértéke 1, a bevételezési statisztikáé 0.",
+  permissionProductsManage:"Termékek létrehozása és szerkesztése"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

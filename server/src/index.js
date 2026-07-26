@@ -95,6 +95,7 @@ const salesPriceForCurrency = (product,currency,settings) => {
   }
   return Number(currency==="EUR"?product.price_eur:product.price_usd)||0;
 };
+const productStatisticsSql="select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select imported_purchase_quantity from products where id=$1)+(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity";
 const nextSalesOrderNumber = async (client,prefix) => {
   const businessDate=(await client.query("select to_char(now() at time zone $1,'YYYYMMDD') value",[businessTimezone])).rows[0].value;
   const base=`${prefix}${businessDate}-`;
@@ -429,20 +430,20 @@ app.get("/api/products", requireAnyPermission("page.dashboard","page.products","
   const q = `%${req.query.search || ""}%`;
   const categoryId = req.query.categoryId ? Number(req.query.categoryId) : null;
   if(categoryId!==null&&!Number.isSafeInteger(categoryId))return res.status(400).json({error:"invalid category"});
-  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.deleted_at is null and (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2::bigint is null or lower(btrim(p.category)) in (select lower(name) from product_categories where deleted_at is null and (id=$2 or parent_id=$2))) order by p.id desc limit 500", [q,categoryId]);
+  const result = await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,p.imported_purchase_quantity+(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.deleted_at is null and (p.sku ilike $1 or p.barcode ilike $1 or p.name ilike $1 or p.name2 ilike $1) and ($2::bigint is null or lower(btrim(p.category)) in (select lower(name) from product_categories where deleted_at is null and (id=$2 or parent_id=$2))) order by p.id desc limit 500", [q,categoryId]);
   res.json(result.rows);
 }));
 app.get("/api/products/categories", requireAnyPermission("page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (_req,res)=>{
   const result=await pool.query("select name from product_categories where deleted_at is null order by lower(name)");
   res.json(result.rows.map(row=>row.name));
 }));
-app.post("/api/products/import", requirePermission("products.manage"), asyncRoute(async (req,res)=>{
+app.post("/api/products/import", requireRole("admin"), asyncRoute(async (req,res)=>{
   const source=Array.isArray(req.body?.products)?req.body.products:[];
   if(!source.length||source.length>1000)return res.status(400).json({error:"product import must contain between 1 and 1000 rows"});
   const importNumber=(value,fallback)=>String(value??"").trim()===""?fallback:Number(value);
   const products=source.map((item,index)=>({
     row:index+2,sku:String(item?.sku||"").trim(),barcode:String(item?.barcode||"").trim(),name:String(item?.name||"").trim(),name2:String(item?.name2||"").trim(),category:String(item?.category||"").trim(),supplier:String(item?.supplier||"").trim(),unit:String(item?.unit||"个").trim()||"个",
-    boxSize:importNumber(item?.boxSize,1),packageSize:importNumber(item?.packageSize,1),cost:importNumber(item?.cost,0),priceHuf:importNumber(item?.priceHuf,0),priceEur:importNumber(item?.priceEur,0),priceUsd:importNumber(item?.priceUsd,0),stock:importNumber(item?.stock,0),
+    boxSize:importNumber(item?.boxSize,1),packageSize:importNumber(item?.packageSize,1),cost:importNumber(item?.cost,0),priceHuf:importNumber(item?.priceHuf,0),priceEur:importNumber(item?.priceEur,0),priceUsd:importNumber(item?.priceUsd,0),stock:importNumber(item?.stock,0),purchaseQuantity:importNumber(item?.purchaseQuantity,0),
   }));
   const errors=[];
   for(const product of products){
@@ -452,6 +453,7 @@ app.post("/api/products/import", requirePermission("products.manage"), asyncRout
     if(!Number.isSafeInteger(product.packageSize)||product.packageSize<=0)errors.push(`row ${product.row}: package size must be a positive integer`);
     if([product.cost,product.priceHuf,product.priceEur,product.priceUsd].some(value=>!Number.isFinite(value)||value<0))errors.push(`row ${product.row}: prices and cost must be non-negative numbers`);
     if(!Number.isSafeInteger(product.stock))errors.push(`row ${product.row}: stock must be an integer`);
+    if(!Number.isSafeInteger(product.purchaseQuantity)||product.purchaseQuantity<0)errors.push(`row ${product.row}: inbound statistics must be a non-negative integer`);
   }
   const duplicateRows=(field,label)=>{
     const seen=new Map();
@@ -462,8 +464,19 @@ app.post("/api/products/import", requirePermission("products.manage"), asyncRout
   const client=await pool.connect();
   try{
     await client.query("begin");
-    const categories=(await client.query("select name from product_categories where deleted_at is null")).rows,categoryMap=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row.name]));
-    for(const product of products){if(product.category&&!categoryMap.has(product.category.toLocaleLowerCase()))errors.push(`row ${product.row}: category does not exist (${product.category})`);else if(product.category)product.category=categoryMap.get(product.category.toLocaleLowerCase())}
+    const categories=(await client.query("select id,parent_id,name from product_categories where deleted_at is null")).rows,categoryByName=new Map(categories.map(row=>[row.name.toLocaleLowerCase(),row]));
+    for(const product of products){
+      if(!product.category)continue;
+      const parts=product.category.split(">").map(value=>value.trim());
+      let category=null;
+      if(parts.some(part=>!part))category=null;
+      else if(parts.length===1)category=categoryByName.get(parts[0].toLocaleLowerCase());
+      else if(parts.length===2){
+        const main=categoryByName.get(parts[0].toLocaleLowerCase()),child=categoryByName.get(parts[1].toLocaleLowerCase());
+        if(main&&!main.parent_id&&child&&Number(child.parent_id)===Number(main.id))category=child;
+      }
+      if(!category||parts.length>2)errors.push(`row ${product.row}: category path does not exist (${product.category})`);else product.category=category.name;
+    }
     const skus=products.map(product=>product.sku),barcodes=products.map(product=>product.barcode).filter(Boolean);
     const existing=await client.query("select sku,barcode from products where deleted_at is null and (lower(sku)=any($1::text[]) or (barcode<>'' and lower(barcode)=any($2::text[])))",[skus.map(value=>value.toLocaleLowerCase()),barcodes.map(value=>value.toLocaleLowerCase())]);
     const existingSkus=new Set(existing.rows.map(row=>String(row.sku).toLocaleLowerCase())),existingBarcodes=new Set(existing.rows.map(row=>String(row.barcode||"").toLocaleLowerCase()).filter(Boolean));
@@ -471,16 +484,16 @@ app.post("/api/products/import", requirePermission("products.manage"), asyncRout
     if(errors.length){await client.query("rollback");return res.status(400).json({error:errors.slice(0,20).join("; ")})}
     const settings=await getSystemSettings(client),created=[],importReference=`PRODUCT-IMPORT-${new Date().toISOString().replace(/\D/g,"").slice(0,14)}-${crypto.randomUUID().slice(0,8)}`;
     for(const product of products){
-      const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,package_size,cost,price,price_eur,price_usd,stock,storage_warehouse) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.packageSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd,product.stock,settings.default_warehouse]);
+      const result=await client.query("insert into products(sku,barcode,name,name2,category,supplier,unit,box_size,package_size,cost,price,price_eur,price_usd,stock,imported_purchase_quantity,storage_warehouse) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) returning *",[product.sku,product.barcode,product.name,product.name2,product.category,product.supplier,product.unit,product.boxSize,product.packageSize,product.cost,product.priceHuf,product.priceEur,product.priceUsd,product.stock,product.purchaseQuantity,settings.default_warehouse]);
       if(product.stock!==0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'product_import',$4,$5)",[result.rows[0].id,settings.default_warehouse,product.stock,importReference,req.user.username]);
-      created.push({...result.rows[0],sales_quantity:0,purchase_quantity:0});
+      created.push({...result.rows[0],sales_quantity:0,purchase_quantity:product.purchaseQuantity});
     }
     await client.query("commit");
     res.status(201).json({count:created.length,stockTotal:products.reduce((total,product)=>total+product.stock,0),products:created});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
 }));
 app.get("/api/products/:id", requireAnyPermission("page.products","page.inventory","page.purchases","page.scanSales","page.collectorSales","page.reports"), asyncRoute(async (req,res)=>{
-  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.id=$1 and p.deleted_at is null",[req.params.id]);
+  const product=await pool.query("select p.*,(select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=p.id and s.deleted_at is null) sales_quantity,p.imported_purchase_quantity+(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases po on po.id=pi.purchase_id where pi.product_id=p.id and po.deleted_at is null) purchase_quantity from products p where p.id=$1 and p.deleted_at is null",[req.params.id]);
   if(!product.rowCount)return res.status(404).json({error:"product not found"});
   const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
   res.json({...product.rows[0],movements:movements.rows});
@@ -504,7 +517,7 @@ app.patch("/api/products/:id", requirePermission("products.manage"), asyncRoute(
   if(category&&!(await pool.query("select 1 from product_categories where name=$1 and deleted_at is null",[category])).rowCount)return res.status(400).json({error:"category does not exist"});
   const result=await pool.query("update products set sku=coalesce($1,sku),barcode=coalesce($2,barcode),name=coalesce($3,name),name2=coalesce($4,name2),category=coalesce($5,category),supplier=coalesce($6,supplier),unit=coalesce($7,unit),box_size=coalesce($8,box_size),package_size=coalesce($9,package_size),cost=coalesce($10,cost),price=coalesce($11,price),price_eur=coalesce($12,price_eur),price_usd=coalesce($13,price_usd),storage_warehouse=coalesce($14,storage_warehouse),storage_location=coalesce($15,storage_location),updated_at=now() where id=$16 and deleted_at is null returning *",[sku,b.barcode===undefined?null:String(b.barcode).trim(),name,name2,b.category===undefined?null:String(b.category).trim(),b.supplier===undefined?null:String(b.supplier).trim(),unit,boxSize,packageSize,cost,priceHuf,priceEur,priceUsd,warehouse,storageLocation,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
-  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query(productStatisticsSql,[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
 app.patch("/api/products/:id/inventory", requirePermission("inventory.edit"), asyncRoute(async (req,res)=>{
@@ -522,7 +535,7 @@ app.patch("/api/products/:id/inventory", requirePermission("inventory.edit"), as
     const delta=stock-Number(current.rows[0].stock);
     const result=await client.query("update products set stock=$1,box_size=$2,unit=$3,storage_warehouse=$4,storage_location=$5,updated_at=now() where id=$6 returning *",[stock,boxSize,unit,warehouse,storageLocation,req.params.id]);
     if(delta!==0)await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'inventory_adjustment',$4,$5)",[req.params.id,warehouse||"主仓库",delta,`INV-ADJ-${crypto.randomUUID().slice(0,8)}`,req.user.username]);
-    const statistics=await client.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+    const statistics=await client.query(productStatisticsSql,[req.params.id]);
     await client.query("commit");
     res.json({...result.rows[0],...statistics.rows[0]});
   }catch(error){await client.query("rollback").catch(()=>{});throw error}finally{client.release()}
@@ -532,7 +545,7 @@ app.patch("/api/products/:id/inventory-location", requirePermission("inventory.l
   if(storageLocation.length>200)return res.status(400).json({error:"storage location is too long"});
   const result=await pool.query("update products set storage_location=$1,updated_at=now() where id=$2 and deleted_at is null returning *",[storageLocation,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"product not found"});
-  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query(productStatisticsSql,[req.params.id]);
   res.json({...result.rows[0],...statistics.rows[0]});
 }));
 app.put("/api/products/:id/image", requirePermission("products.images"), express.raw({ type: ["image/jpeg","image/png","image/webp"], limit: "5mb" }), asyncRoute(async (req,res)=>{
@@ -549,7 +562,7 @@ app.put("/api/products/:id/image", requirePermission("products.images"), express
   catch(error){await unlink(filePath).catch(()=>{});throw error}
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query(productStatisticsSql,[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
 app.delete("/api/products/:id/image", requirePermission("products.images"), asyncRoute(async (req,res)=>{
@@ -558,7 +571,7 @@ app.delete("/api/products/:id/image", requirePermission("products.images"), asyn
   const updated=await pool.query("update products set image_url='',updated_at=now() where id=$1 returning *",[req.params.id]);
   const previous=product.rows[0].image_url;
   if(previous?.startsWith("/uploads/"))await unlink(path.join(uploadDirectory,path.basename(previous))).catch(()=>{});
-  const statistics=await pool.query("select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity",[req.params.id]);
+  const statistics=await pool.query(productStatisticsSql,[req.params.id]);
   res.json({...updated.rows[0],...statistics.rows[0]});
 }));
 app.delete("/api/products/batch-delete", requirePermission("products.delete"), asyncRoute(async (req,res)=>{
