@@ -95,13 +95,23 @@ const formatDate = (value) => value ? new Date(value).toLocaleString([], {
 
 const normalizeCustomer = (customer) => ({
   ...customer,
-  group: customer.customer_group ?? customer.group ?? "",
+  customerGroupId: Number(customer.customer_group_id ?? customer.customerGroupId) || null,
+  group: customer.customer_group_name ?? customer.customer_group ?? customer.group ?? "",
+  groupDiscountPercent: Number(customer.group_discount_percent ?? customer.groupDiscountPercent ?? 0),
+  notes: customer.notes || "",
   postalCode: customer.postal_code ?? customer.postalCode ?? "",
   taxNumber: customer.tax_number ?? customer.taxNumber ?? "",
   vehiclePlate: customer.vehicle_plate ?? customer.vehiclePlate ?? "",
   vehiclePlates: Array.isArray(customer.vehicle_plates ?? customer.vehiclePlates) ? (customer.vehicle_plates ?? customer.vehiclePlates).filter(Boolean) : [],
   country: customer.country || "Magyarország",
   email: customer.email || "",
+});
+
+const normalizeCustomerGroup = group => ({
+  ...group,
+  discountPercent:Number(group.discount_percent ?? group.discountPercent ?? 0),
+  customerCount:Number(group.customer_count ?? group.customerCount ?? 0),
+  notes:group.notes||"",
 });
 
 const normalizePurchase = (purchase) => ({
@@ -137,6 +147,7 @@ const normalizeSale = (sale) => ({
   customerPostalCode: sale.customer_postal_code ?? sale.customerPostalCode ?? "",
   customerTaxNumber: sale.customer_tax_number ?? sale.customerTaxNumber ?? "",
   customerEmail: sale.customer_email ?? sale.customerEmail ?? "",
+  customerDiscountPercent: Number(sale.customer_discount_percent ?? sale.customerDiscountPercent ?? 0),
   paidTotal: Number(sale.paid_total ?? sale.paidTotal ?? 0),
   balance: Number(sale.balance ?? Math.max(Number(sale.total || 0)-Number(sale.paid_total ?? sale.paidTotal ?? 0),0)),
   stockDeducted: Boolean(sale.stock_deducted),
@@ -367,6 +378,30 @@ export async function updateCustomer(token, id, customer) {
 
 export async function deleteCustomer(token, id) {
   return request(`/customers/${id}`, { token, method: "DELETE" });
+}
+
+export async function importCustomers(token, customers) {
+  return request("/customers/import", {token,method:"POST",body:JSON.stringify({customers})});
+}
+
+export async function fetchCustomerGroups(token) {
+  return (await request("/customer-groups",{token})).map(normalizeCustomerGroup);
+}
+
+export async function createCustomerGroup(token, group) {
+  return normalizeCustomerGroup(await request("/customer-groups",{token,method:"POST",body:JSON.stringify(group)}));
+}
+
+export async function updateCustomerGroup(token,id,group) {
+  return normalizeCustomerGroup(await request(`/customer-groups/${id}`,{token,method:"PATCH",body:JSON.stringify(group)}));
+}
+
+export async function updateCustomerGroupMembers(token,id,customerIds) {
+  return request(`/customer-groups/${id}/members`,{token,method:"PUT",body:JSON.stringify({customerIds})});
+}
+
+export async function deleteCustomerGroup(token,id) {
+  return request(`/customer-groups/${id}`,{token,method:"DELETE"});
 }
 
 export async function fetchPurchases(token) {

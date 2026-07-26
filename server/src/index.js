@@ -95,6 +95,16 @@ const salesPriceForCurrency = (product,currency,settings) => {
   }
   return Number(currency==="EUR"?product.price_eur:product.price_usd)||0;
 };
+const discountedSalesPrice = (product,currency,settings,discountPercent=0) => {
+  const price=salesPriceForCurrency(product,currency,settings)*(1-Number(discountPercent||0)/100);
+  return currency==="HUF"?Math.round(price):Number(price.toFixed(2));
+};
+const customerDiscountForSale = async (client,customerId) => {
+  if(!customerId)return 0;
+  const customer=await client.query("select c.id,coalesce(g.discount_percent,0)::numeric discount_percent from customers c left join customer_groups g on g.id=c.customer_group_id and g.deleted_at is null where c.id=$1 and c.deleted_at is null",[customerId]);
+  if(!customer.rowCount){const error=new Error("customer not found");error.status=400;throw error}
+  return Number(customer.rows[0].discount_percent);
+};
 const productStatisticsSql="select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select imported_purchase_quantity from products where id=$1)+(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null) purchase_quantity";
 const nextSalesOrderNumber = async (client,prefix) => {
   const businessDate=(await client.query("select to_char(now() at time zone $1,'YYYYMMDD') value",[businessTimezone])).rows[0].value;
@@ -124,8 +134,8 @@ const auditMetadata=(path,method)=>{
   if(root==="sales"&&parts[2]==="invoice")return {module:"invoices",action:"issue_invoice",entityType:"sale",entityId:id};
   if(root==="invoices"&&parts[2]==="corrections")return {module:"invoices",action:"correct_invoice",entityType:"invoice",entityId:id};
   if(root==="invoices"&&parts[2]==="storno")return {module:"invoices",action:"void_invoice",entityType:"invoice",entityId:id};
-  const modules={settings:"system",users:"users","role-permissions":"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers",sales:"sales",invoices:"invoices","finance-transactions":"finance"};
-  const entities={settings:"settings",users:"user","role-permissions":"role",categories:"category",products:"product",purchases:"purchase",customers:"customer",sales:"sale",invoices:"invoice","finance-transactions":"finance_transaction"};
+  const modules={settings:"system",users:"users","role-permissions":"users",categories:"categories",products:"products",purchases:"inventory",customers:"customers","customer-groups":"customers",sales:"sales",invoices:"invoices","finance-transactions":"finance"};
+  const entities={settings:"settings",users:"user","role-permissions":"role",categories:"category",products:"product",purchases:"purchase",customers:"customer","customer-groups":"customer_group",sales:"sale",invoices:"invoice","finance-transactions":"finance_transaction"};
   return {module:modules[root]||root,action:{POST:"create",PUT:"update",PATCH:"update",DELETE:"delete"}[method]||"change",entityType:entities[root]||root,entityId:id};
 };
 
@@ -621,28 +631,71 @@ app.put("/api/products/:id/translations/:locale", requirePermission("products.ma
 
 app.get("/api/customers", requireAnyPermission("page.dashboard","page.customers","page.sales","page.scanSales","page.issueInvoice","page.reports"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
-  const result=await pool.query(`select c.*,coalesce((select array_agg(distinct trim(s.vehicle_plate)) from sales s where s.customer_id=c.id and s.deleted_at is null and nullif(trim(s.vehicle_plate),'') is not null),'{}'::text[]) vehicle_plates
-    from customers c where c.deleted_at is null and (c.name ilike $1 or c.phone ilike $1 or c.vehicle_plate ilike $1 or c.city ilike $1 or c.tax_number ilike $1 or exists(select 1 from sales s where s.customer_id=c.id and s.deleted_at is null and s.vehicle_plate ilike $1))
-    order by c.id desc limit 500`,[q]);
+  const result=await pool.query(`select c.*,g.name customer_group_name,coalesce(g.discount_percent,0) group_discount_percent,coalesce((select array_agg(distinct trim(s.vehicle_plate)) from sales s where s.customer_id=c.id and s.deleted_at is null and nullif(trim(s.vehicle_plate),'') is not null),'{}'::text[]) vehicle_plates
+    from customers c left join customer_groups g on g.id=c.customer_group_id and g.deleted_at is null
+    where c.deleted_at is null and (c.name ilike $1 or c.phone ilike $1 or c.vehicle_plate ilike $1 or c.city ilike $1 or c.tax_number ilike $1 or c.notes ilike $1 or g.name ilike $1 or exists(select 1 from sales s where s.customer_id=c.id and s.deleted_at is null and s.vehicle_plate ilike $1))
+    order by c.id desc`,[q]);
   res.json(result.rows);
 }));
 app.post("/api/customers", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},name=String(b.name||"").trim();
   if(!name)return res.status(400).json({error:"customer name is required"});
-  const result=await pool.query("insert into customers(name,phone,vehicle_plate,city,address,customer_group,country,postal_code,tax_number,email) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *",[name,String(b.phone||"").trim(),String(b.vehiclePlate||"").trim().slice(0,50),String(b.city||"").trim(),String(b.address||"").trim(),String(b.group||"零售").trim(),String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim()]);
-  res.status(201).json(result.rows[0]);
+  const groupId=b.customerGroupId?Number(b.customerGroupId):null;
+  if(groupId&&(!Number.isSafeInteger(groupId)||!(await pool.query("select 1 from customer_groups where id=$1 and deleted_at is null",[groupId])).rowCount))return res.status(400).json({error:"customer group does not exist"});
+  const result=await pool.query("insert into customers(name,phone,vehicle_plate,city,address,customer_group,customer_group_id,country,postal_code,tax_number,email,notes) values($1,$2,$3,$4,$5,coalesce((select name from customer_groups where id=$6),''),$6,$7,$8,$9,$10,$11) returning *",[name,String(b.phone||"").trim(),String(b.vehiclePlate||"").trim().slice(0,50),String(b.city||"").trim(),String(b.address||"").trim(),groupId,String(b.country||"Magyarország").trim(),String(b.postalCode||"").trim(),String(b.taxNumber||"").trim(),String(b.email||"").trim(),String(b.notes||"").trim().slice(0,1000)]);
+  res.status(201).json((await pool.query("select c.*,g.name customer_group_name,coalesce(g.discount_percent,0) group_discount_percent from customers c left join customer_groups g on g.id=c.customer_group_id where c.id=$1",[result.rows[0].id])).rows[0]);
 }));
 app.patch("/api/customers/:id", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},current=(await pool.query("select * from customers where id=$1 and deleted_at is null",[req.params.id])).rows[0];
   if(!current)return res.status(404).json({error:"customer not found"});
   const value=(camel,column,max=500)=>String(b[camel]??current[column]??"").trim().slice(0,max),name=value("name","name",200);
   if(!name)return res.status(400).json({error:"customer name is required"});
-  const result=await pool.query("update customers set name=$1,phone=$2,vehicle_plate=$3,city=$4,address=$5,customer_group=$6,country=$7,postal_code=$8,tax_number=$9,email=$10,updated_at=now() where id=$11 and deleted_at is null returning *",[name,value("phone","phone",100),value("vehiclePlate","vehicle_plate",50),value("city","city",150),value("address","address"),value("group","customer_group",100),value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),req.params.id]);
-  res.json(result.rows[0]);
+  const groupId=b.customerGroupId===undefined?current.customer_group_id:(b.customerGroupId?Number(b.customerGroupId):null);
+  if(groupId&&(!Number.isSafeInteger(Number(groupId))||!(await pool.query("select 1 from customer_groups where id=$1 and deleted_at is null",[groupId])).rowCount))return res.status(400).json({error:"customer group does not exist"});
+  await pool.query("update customers set name=$1,phone=$2,vehicle_plate=$3,city=$4,address=$5,customer_group=coalesce((select name from customer_groups where id=$6),''),customer_group_id=$6,country=$7,postal_code=$8,tax_number=$9,email=$10,notes=$11,updated_at=now() where id=$12 and deleted_at is null",[name,value("phone","phone",100),value("vehiclePlate","vehicle_plate",50),value("city","city",150),value("address","address"),groupId,value("country","country",100)||"Magyarország",value("postalCode","postal_code",30),value("taxNumber","tax_number",50),value("email","email",200),value("notes","notes",1000),req.params.id]);
+  res.json((await pool.query("select c.*,g.name customer_group_name,coalesce(g.discount_percent,0) group_discount_percent from customers c left join customer_groups g on g.id=c.customer_group_id where c.id=$1",[req.params.id])).rows[0]);
+}));
+app.post("/api/customers/import", requireRole("admin"), asyncRoute(async(req,res)=>{
+  const rows=Array.isArray(req.body?.customers)?req.body.customers:[];
+  if(!rows.length||rows.length>5000)return res.status(400).json({error:"customer import must contain between 1 and 5000 rows"});
+  const groups=(await pool.query("select id,name from customer_groups where deleted_at is null")).rows,groupByName=new Map(groups.map(group=>[group.name.toLocaleLowerCase(),group]));
+  const customers=rows.map((item,index)=>({row:index+2,name:String(item?.name||"").trim(),phone:String(item?.phone||"").trim(),vehiclePlate:String(item?.vehiclePlate||"").trim().slice(0,50),postalCode:String(item?.postalCode||"").trim(),city:String(item?.city||"").trim(),address:String(item?.address||"").trim(),country:String(item?.country||"Magyarország").trim()||"Magyarország",taxNumber:String(item?.taxNumber||"").trim(),email:String(item?.email||"").trim(),group:String(item?.group||"").trim(),notes:String(item?.notes||"").trim().slice(0,1000)})),errors=[];
+  for(const customer of customers){if(!customer.name)errors.push(`row ${customer.row}: customer name is required`);customer.groupId=customer.group?groupByName.get(customer.group.toLocaleLowerCase())?.id:null;if(customer.group&&!customer.groupId)errors.push(`row ${customer.row}: customer group does not exist (${customer.group})`)}
+  if(errors.length)return res.status(400).json({error:errors.slice(0,20).join("; ")});
+  const client=await pool.connect();
+  try{await client.query("begin");for(const customer of customers)await client.query("insert into customers(name,phone,vehicle_plate,postal_code,city,address,country,tax_number,email,customer_group,customer_group_id,notes) values($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)",[customer.name,customer.phone,customer.vehiclePlate,customer.postalCode,customer.city,customer.address,customer.country,customer.taxNumber,customer.email,customer.group,customer.groupId,customer.notes]);await client.query("commit");res.status(201).json({count:customers.length})}catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
 app.delete("/api/customers/:id", requirePermission("customers.delete"), asyncRoute(async (req,res)=>{
   const result=await pool.query("update customers set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id",[req.user.username,req.params.id]);
   if(!result.rowCount)return res.status(404).json({error:"customer not found"});res.json({id:Number(result.rows[0].id)});
+}));
+
+app.get("/api/customer-groups",requireAnyPermission("page.customers","page.scanSales","page.reports"),asyncRoute(async(_req,res)=>{
+  res.json((await pool.query("select g.*,count(c.id)::int customer_count from customer_groups g left join customers c on c.customer_group_id=g.id and c.deleted_at is null where g.deleted_at is null group by g.id order by lower(g.name)")).rows);
+}));
+app.post("/api/customer-groups",requirePermission("customers.manage"),asyncRoute(async(req,res)=>{
+  const name=String(req.body?.name||"").trim().slice(0,200),discount=Number(req.body?.discountPercent??0),notes=String(req.body?.notes||"").trim().slice(0,1000);
+  if(!name||!Number.isFinite(discount)||discount<0||discount>100)return res.status(400).json({error:"invalid customer group"});
+  res.status(201).json((await pool.query("insert into customer_groups(name,discount_percent,notes) values($1,$2,$3) returning *",[name,discount,notes])).rows[0]);
+}));
+app.patch("/api/customer-groups/:id",requirePermission("customers.manage"),asyncRoute(async(req,res)=>{
+  const current=(await pool.query("select * from customer_groups where id=$1 and deleted_at is null",[req.params.id])).rows[0];
+  if(!current)return res.status(404).json({error:"customer group not found"});
+  const name=String(req.body?.name??current.name).trim().slice(0,200),discount=Number(req.body?.discountPercent??current.discount_percent),notes=String(req.body?.notes??current.notes).trim().slice(0,1000);
+  if(!name||!Number.isFinite(discount)||discount<0||discount>100)return res.status(400).json({error:"invalid customer group"});
+  const updated=(await pool.query("update customer_groups set name=$1,discount_percent=$2,notes=$3,updated_at=now() where id=$4 returning *",[name,discount,notes,req.params.id])).rows[0];
+  await pool.query("update customers set customer_group=$1,updated_at=now() where customer_group_id=$2 and deleted_at is null",[name,req.params.id]);
+  res.json(updated);
+}));
+app.put("/api/customer-groups/:id/members",requirePermission("customers.manage"),asyncRoute(async(req,res)=>{
+  const customerIds=[...new Set((Array.isArray(req.body?.customerIds)?req.body.customerIds:[]).map(Number))];
+  if(customerIds.some(id=>!Number.isSafeInteger(id)||id<=0))return res.status(400).json({error:"invalid customer IDs"});
+  const client=await pool.connect();
+  try{await client.query("begin");const group=(await client.query("select id,name from customer_groups where id=$1 and deleted_at is null for update",[req.params.id])).rows[0];if(!group){const error=new Error("customer group not found");error.status=404;throw error}if(customerIds.length&&(await client.query("select count(*)::int count from customers where id=any($1::bigint[]) and deleted_at is null",[customerIds])).rows[0].count!==customerIds.length){const error=new Error("one or more customers do not exist");error.status=400;throw error}await client.query("update customers set customer_group_id=null,customer_group='',updated_at=now() where customer_group_id=$1 and deleted_at is null",[req.params.id]);if(customerIds.length)await client.query("update customers set customer_group_id=$1,customer_group=$2,updated_at=now() where id=any($3::bigint[]) and deleted_at is null",[req.params.id,group.name,customerIds]);await client.query("commit");res.json({id:Number(req.params.id),customerIds})}catch(error){await client.query("rollback");throw error}finally{client.release()}
+}));
+app.delete("/api/customer-groups/:id",requirePermission("customers.manage"),asyncRoute(async(req,res)=>{
+  const client=await pool.connect();
+  try{await client.query("begin");const result=await client.query("update customer_groups set deleted_at=now(),deleted_by=$1,updated_at=now() where id=$2 and deleted_at is null returning id",[req.user.username,req.params.id]);if(!result.rowCount){const error=new Error("customer group not found");error.status=404;throw error}await client.query("update customers set customer_group_id=null,customer_group='',updated_at=now() where customer_group_id=$1",[req.params.id]);await client.query("commit");res.json({id:Number(req.params.id)})}catch(error){await client.query("rollback");throw error}finally{client.release()}
 }));
 
 app.get("/api/purchases", requirePermission("page.purchases"), asyncRoute(async (_req,res)=>res.json((await pool.query("select p.*,coalesce(sum(pi.quantity),0)::int quantity from purchases p left join purchase_items pi on pi.purchase_id=p.id where p.deleted_at is null group by p.id order by p.created_at desc limit 500")).rows)));
@@ -917,22 +970,24 @@ app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,
   const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
-  const currency=String(body.currency||settings.default_currency).toUpperCase();
+  const currency=String(body.currency||settings.default_currency).toUpperCase(),customerId=body.customerId?Number(body.customerId):null;
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
+  if(customerId!==null&&(!Number.isSafeInteger(customerId)||customerId<=0))return res.status(400).json({error:"invalid customer"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
   if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
+    const discountPercent=await customerDiscountForSale(client,customerId);
     const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) and deleted_at is null for update",[items.map(item=>item.productId)]);
     if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
-    const pricedItems=items.map(item=>({...item,price:salesPriceForCurrency(productById.get(item.productId),currency,settings)}));
+    const pricedItems=items.map(item=>({...item,price:discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent)}));
     if(!settings.allow_overselling){const unavailable=pricedItems.find(item=>Number(productById.get(item.productId).stock)-item.quantity<0);if(unavailable){const error=new Error(`insufficient stock for product ${unavailable.productId}; overselling is disabled`);error.status=409;throw error}}
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     const orderNo=await nextSalesOrderNumber(client,settings.sales_order_prefix);
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9) returning *",[orderNo,body.customerId||null,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress]);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address,customer_discount_percent) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9,$10) returning *",[orderNo,customerId,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent]);
     for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale',$4,$5)",[item.productId,settings.default_warehouse,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
@@ -943,15 +998,17 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
   const settings=await getSystemSettings();
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
-  const currency=String(body.currency||settings.default_currency).toUpperCase();
+  const currency=String(body.currency||settings.default_currency).toUpperCase(),customerId=body.customerId?Number(body.customerId):null;
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
+  if(customerId!==null&&(!Number.isSafeInteger(customerId)||customerId<=0))return res.status(400).json({error:"invalid customer"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
   if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
   const client=await pool.connect();
   try{await client.query("begin");
     const settings=await getSystemSettings(client);
+    const discountPercent=await customerDiscountForSale(client,customerId);
     const sale=await client.query("select id,order_no,stock_deducted from sales where id=$1 and deleted_at is null for update",[req.params.id]);
     if(!sale.rowCount){const error=new Error("sale not found");error.status=404;throw error}
     const invoice=await client.query("select 1 from invoices where sale_id=$1 limit 1",[req.params.id]);
@@ -965,7 +1022,7 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
     const productRows=[];
     for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 and deleted_at is null for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
     const productById=new Map(productRows.map(product=>[Number(product.id),product]));
-    const pricedItems=items.map(item=>({...item,price:salesPriceForCurrency(productById.get(item.productId),currency,settings)}));
+    const pricedItems=items.map(item=>({...item,price:discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent)}));
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     if(sale.rows[0].stock_deducted){
       const stockChanges=new Map();
@@ -975,7 +1032,7 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
     }
     await client.query("delete from sale_items where sale_id=$1",[req.params.id]);
     for(const item of pricedItems)await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[req.params.id,item.productId,item.quantity,item.price]);
-    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4,delivery_phone=$5,vehicle_plate=$6,delivery_address=$7 where id=$8 returning *",[body.customerId||null,total,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,req.params.id]);
+    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4,delivery_phone=$5,vehicle_plate=$6,delivery_address=$7,customer_discount_percent=$8 where id=$9 returning *",[customerId,total,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent,req.params.id]);
     await client.query("commit");res.json(updated.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
@@ -1128,8 +1185,8 @@ app.get("/api/reports/customers",requirePermission("page.reports"),asyncRoute(as
   ),returns as (select s.customer_id,coalesce(sum(sr.total),0)::numeric refund_amount from sale_returns sr join sales s on s.id=sr.sale_id join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and sr.created_at >= ($2::date at time zone $1) and sr.created_at < (($3::date+1) at time zone $1) group by s.customer_id),payments as (
     select s.customer_id,coalesce(sum(sp.amount),0)::numeric paid_amount from sale_payments sp join sales s on s.id=sp.sale_id join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and sp.booked_on between $2::date and $3::date group by s.customer_id
   ),due as (select s.customer_id,coalesce(sum(greatest(s.total-coalesce((select sum(sp.amount) from sale_payments sp where sp.sale_id=s.id),0),0)),0)::numeric due_amount from sales s join selected_customers c on c.id=s.customer_id where s.deleted_at is null and s.currency=$4 and s.created_at >= ($2::date at time zone $1) and s.created_at < (($3::date+1) at time zone $1) group by s.customer_id),last_orders as (select customer_id,max(created_at) last_order_at from sales where deleted_at is null group by customer_id)
-    select c.id,c.name,c.customer_group,c.city,c.country,c.created_at,(c.created_at at time zone $1)::date created_on,coalesce(o.order_count,0)::int order_count,coalesce(o.gross_sales,0)::numeric gross_sales,coalesce(r.refund_amount,0)::numeric refund_amount,(coalesce(o.gross_sales,0)-coalesce(r.refund_amount,0))::numeric net_sales,coalesce(o.quantity,0)::int quantity,coalesce(p.paid_amount,0)::numeric paid_amount,coalesce(d.due_amount,0)::numeric due_amount,l.last_order_at
-    from selected_customers c left join orders o on o.customer_id=c.id left join returns r on r.customer_id=c.id left join payments p on p.customer_id=c.id left join due d on d.customer_id=c.id left join last_orders l on l.customer_id=c.id
+    select c.id,c.name,coalesce(g.name,c.customer_group,'') customer_group,c.city,c.country,c.created_at,(c.created_at at time zone $1)::date created_on,coalesce(o.order_count,0)::int order_count,coalesce(o.gross_sales,0)::numeric gross_sales,coalesce(r.refund_amount,0)::numeric refund_amount,(coalesce(o.gross_sales,0)-coalesce(r.refund_amount,0))::numeric net_sales,coalesce(o.quantity,0)::int quantity,coalesce(p.paid_amount,0)::numeric paid_amount,coalesce(d.due_amount,0)::numeric due_amount,l.last_order_at
+    from selected_customers c left join customer_groups g on g.id=c.customer_group_id and g.deleted_at is null left join orders o on o.customer_id=c.id left join returns r on r.customer_id=c.id left join payments p on p.customer_id=c.id left join due d on d.customer_id=c.id left join last_orders l on l.customer_id=c.id
     where coalesce(o.order_count,0)>0 or coalesce(p.paid_amount,0)>0 or c.created_at >= ($2::date at time zone $1) and c.created_at < (($3::date+1) at time zone $1) order by net_sales desc,c.name`,params);
   const trend=await pool.query(`with report_days as (select generate_series($2::date,$3::date,interval '1 day')::date as report_date) select report_days.report_date as date,(select count(*)::int from customers c where c.deleted_at is null and (c.created_at at time zone $1)::date=report_days.report_date and ($5::bigint is null or c.id=$5)) as new_customers,(select count(distinct s.customer_id)::int from sales s join customers c on c.id=s.customer_id where s.deleted_at is null and c.deleted_at is null and s.currency=$4 and (s.created_at at time zone $1)::date=report_days.report_date and ($5::bigint is null or c.id=$5)) as purchasing_customers from report_days order by report_days.report_date`,params);
   const allCount=await pool.query("select count(*)::int count from customers where deleted_at is null and ($1::bigint is null or id=$1)",[customerId]);

@@ -349,6 +349,49 @@ Object.assign(messages.hu,{
   productImportIdentityConflict:"A cikkszám és a vonalkód két különböző meglévő termékhez tartozik"
 });
 
+Object.assign(messages["zh-CN"],{
+  customerGroups:"客户组",customerGroup:"客户组",customerNotes:"备注",
+  customerGroupDescription:"建立客户折扣组并管理组内客户；销售时自动按照客户所在组应用折扣。",
+  customerGroupName:"客户组名称",discountPercent:"折扣百分比",groupMemberCount:"客户数量",
+  newCustomerGroup:"新建客户组",editCustomerGroup:"编辑客户组",invalidCustomerGroup:"请填写客户组名称，并输入 0–100 之间的折扣百分比。",
+  noCustomerGroup:"不属于任何客户组",manageGroupMembers:"管理组内客户",currentGroup:"当前组",
+  saveGroupMembers:"保存 {count} 位客户",customerDiscountApplied:"已应用客户组“{group}”的 {discount}% 折扣",
+  importCustomers:"导入客户",confirmImportCustomers:"确认导入客户",
+  customerImportInstructions:"客户导入模板",customerImportGroupTip:"客户组名称必须与系统中已有客户组完全一致；留空表示不分组。",
+  customerImportHelp:"支持 .xlsx 文件。客户名称必填；客户组填写已有的客户组名称，其他字段可以留空。",
+  customerImportEmpty:"Excel 中没有可导入的客户数据。",customerImportReadFailed:"无法读取 Excel 文件，请确认文件格式正确。",
+  customerImportUnknownGroup:"客户组不存在：{group}",customerImportTooManyRows:"一次最多导入 5000 位客户。",
+  customerImportSuccess:"已成功导入 {count} 位客户。",auditEntity_customer_group:"客户组"
+});
+Object.assign(messages.en,{
+  customerGroups:"Customer groups",customerGroup:"Customer group",customerNotes:"Notes",
+  customerGroupDescription:"Create discount groups and manage their members. The group discount is applied automatically during a sale.",
+  customerGroupName:"Group name",discountPercent:"Discount percentage",groupMemberCount:"Customers",
+  newCustomerGroup:"New customer group",editCustomerGroup:"Edit customer group",invalidCustomerGroup:"Enter a group name and a discount from 0 to 100.",
+  noCustomerGroup:"No customer group",manageGroupMembers:"Manage group members",currentGroup:"Current group",
+  saveGroupMembers:"Save {count} customers",customerDiscountApplied:"{discount}% discount from “{group}” applied",
+  importCustomers:"Import customers",confirmImportCustomers:"Import customers",
+  customerImportInstructions:"Customer import template",customerImportGroupTip:"The group name must exactly match an existing customer group. Leave it blank for no group.",
+  customerImportHelp:"Supports .xlsx files. Customer name is required; enter an existing customer group name or leave it blank.",
+  customerImportEmpty:"The workbook contains no customer rows.",customerImportReadFailed:"The Excel file could not be read. Check its format.",
+  customerImportUnknownGroup:"Customer group does not exist: {group}",customerImportTooManyRows:"A maximum of 5,000 customers can be imported at once.",
+  customerImportSuccess:"Imported {count} customers.",auditEntity_customer_group:"Customer group"
+});
+Object.assign(messages.hu,{
+  customerGroups:"Vevőcsoportok",customerGroup:"Vevőcsoport",customerNotes:"Megjegyzés",
+  customerGroupDescription:"Kedvezménycsoportok létrehozása és a tagok kezelése. Értékesítéskor a csoport kedvezménye automatikusan érvényesül.",
+  customerGroupName:"Csoport neve",discountPercent:"Kedvezmény százaléka",groupMemberCount:"Vevők",
+  newCustomerGroup:"Új vevőcsoport",editCustomerGroup:"Vevőcsoport szerkesztése",invalidCustomerGroup:"Adja meg a csoport nevét és egy 0 és 100 közötti kedvezményt.",
+  noCustomerGroup:"Nincs vevőcsoport",manageGroupMembers:"Csoporttagok kezelése",currentGroup:"Jelenlegi csoport",
+  saveGroupMembers:"{count} vevő mentése",customerDiscountApplied:"A(z) „{group}” csoport {discount}%-os kedvezménye alkalmazva",
+  importCustomers:"Vevők importálása",confirmImportCustomers:"Vevők importálása",
+  customerImportInstructions:"Vevőimport-sablon",customerImportGroupTip:"A csoportnévnek pontosan egyeznie kell egy meglévő vevőcsoport nevével. Csoport nélkül hagyja üresen.",
+  customerImportHelp:".xlsx fájlokat támogat. A vevő neve kötelező; meglévő vevőcsoport neve megadható, vagy üresen hagyható.",
+  customerImportEmpty:"A munkafüzet nem tartalmaz importálható vevőket.",customerImportReadFailed:"Az Excel-fájl nem olvasható. Ellenőrizze a formátumát.",
+  customerImportUnknownGroup:"A vevőcsoport nem létezik: {group}",customerImportTooManyRows:"Egyszerre legfeljebb 5000 vevő importálható.",
+  customerImportSuccess:"{count} vevő importálva.",auditEntity_customer_group:"Vevőcsoport"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
