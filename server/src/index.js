@@ -88,6 +88,13 @@ const requireRole = (...allowed) => (req, res, next) => allowed.includes(req.use
 const requirePermission = permission => (req,res,next) => req.user.role==="admin"||req.user.permissions.includes(permission)?next():res.status(403).json({error:"forbidden"});
 const requireAnyPermission = (...permissions) => (req,res,next) => req.user.role==="admin"||permissions.some(permission=>req.user.permissions.includes(permission))?next():res.status(403).json({error:"forbidden"});
 const getSystemSettings = async (client=pool) => (await client.query("select * from system_settings where id=true")).rows[0];
+const salesPriceForCurrency = (product,currency,settings) => {
+  if(currency==="HUF"){
+    const hufPrice=Number(product.price||0);
+    return hufPrice>0?hufPrice:Math.round(Number(product.price_eur||0)*Number(settings.eur_huf_rate));
+  }
+  return Number(currency==="EUR"?product.price_eur:product.price_usd)||0;
+};
 const nextSalesOrderNumber = async (client,prefix) => {
   const businessDate=(await client.query("select to_char(now() at time zone $1,'YYYYMMDD') value",[businessTimezone])).rows[0].value;
   const base=`${prefix}${businessDate}-`;
@@ -891,8 +898,7 @@ app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,
     const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) and deleted_at is null for update",[items.map(item=>item.productId)]);
     if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
-    const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
-    const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
+    const pricedItems=items.map(item=>({...item,price:salesPriceForCurrency(productById.get(item.productId),currency,settings)}));
     if(!settings.allow_overselling){const unavailable=pricedItems.find(item=>Number(productById.get(item.productId).stock)-item.quantity<0);if(unavailable){const error=new Error(`insufficient stock for product ${unavailable.productId}; overselling is disabled`);error.status=409;throw error}}
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     const orderNo=await nextSalesOrderNumber(client,settings.sales_order_prefix);
@@ -929,8 +935,7 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
     const productRows=[];
     for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 and deleted_at is null for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
     const productById=new Map(productRows.map(product=>[Number(product.id),product]));
-    const priceColumn={HUF:"price",EUR:"price_eur",USD:"price_usd"}[currency];
-    const pricedItems=items.map(item=>({...item,price:Number(productById.get(item.productId)[priceColumn])}));
+    const pricedItems=items.map(item=>({...item,price:salesPriceForCurrency(productById.get(item.productId),currency,settings)}));
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     if(sale.rows[0].stock_deducted){
       const stockChanges=new Map();
