@@ -442,6 +442,16 @@ Object.assign(messages.hu,{
   movement_purchase_receive:"Beszerzés bevételezve",movement_purchase_unreceive:"Bevételezés visszavonva",movement_purchase_edit_reverse:"Beszerzés szerkesztésének visszafordítása",movement_purchase_edit:"Szerkesztett beszerzés újrakönyvelve"
 });
 
+Object.assign(messages["zh-CN"],{
+  inboundTime:"入库时间",productPurchaseOrders:"相关入库单",purchaseOrdersContainingProduct:"共有 {count} 张入库单包含该产品",noProductPurchaseOrders:"暂无包含该产品的入库单"
+});
+Object.assign(messages.en,{
+  inboundTime:"Received at",productPurchaseOrders:"Related purchase receipts",purchaseOrdersContainingProduct:"{count} purchase receipts contain this product",noProductPurchaseOrders:"No purchase receipts contain this product"
+});
+Object.assign(messages.hu,{
+  inboundTime:"Bevételezés ideje",productPurchaseOrders:"Kapcsolódó bevételezések",purchaseOrdersContainingProduct:"{count} bevételezés tartalmazza ezt a terméket",noProductPurchaseOrders:"Nincs ezt a terméket tartalmazó bevételezés"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

@@ -64,6 +64,7 @@ const normalizeProduct = (product) => ({
   stock: Number(product.stock || 0),
   purchaseQuantity: Number(product.purchase_quantity ?? product.purchaseQuantity ?? 0),
   salesQuantity: Number(product.sales_quantity ?? product.salesQuantity ?? 0),
+  inboundAt: product.inbound_at ?? product.inboundAt ?? null,
   createdAt: product.created_at ?? product.createdAt ?? null,
   updatedAt: product.updated_at ?? product.updatedAt ?? null,
   imageUrl: product.image_url ?? product.imageUrl ?? "",
@@ -335,6 +336,22 @@ export async function fetchProductSales(token,id) {
     lineTotal:Number(row.line_total||0),
     stockDeducted:Boolean(row.stock_deducted),
     delivered:Boolean(row.delivered),
+  }));
+}
+
+export async function fetchProductPurchases(token,id) {
+  return (await request(`/products/${id}/purchases`,{token})).map(row=>({
+    ...row,
+    databaseId:Number(row.id),
+    id:row.order_no??row.id,
+    createdAt:row.created_at??null,
+    receivedAt:row.received_at??null,
+    supplier:row.supplier||"",
+    warehouse:row.warehouse||"",
+    status:row.status||"未入库",
+    quantity:Number(row.quantity||0),
+    cost:Number(row.cost||0),
+    lineTotal:Number(row.line_total||0),
   }));
 }
 
