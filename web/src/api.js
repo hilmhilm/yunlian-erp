@@ -116,11 +116,22 @@ const normalizeCustomerGroup = group => ({
 
 const normalizePurchase = (purchase) => ({
   ...purchase,
-  databaseId: purchase.id,
+  databaseId: Number(purchase.id),
   id: purchase.order_no ?? purchase.id,
   date: formatDate(purchase.created_at),
   quantity: Number(purchase.quantity || 0),
   total: Number(purchase.total || 0),
+  itemCount:Number(purchase.item_count||purchase.items?.length||0),
+  status:purchase.status==="待审核"?"未入库":purchase.status,
+  items:(purchase.items||[]).map(item=>({
+    ...item,
+    id:Number(item.id),
+    productId:Number(item.product_id??item.productId),
+    quantity:Number(item.quantity||0),
+    cost:Number(item.cost||0),
+    imageUrl:item.image_url??item.imageUrl??"",
+    name2:item.name2||"",
+  })),
 });
 
 const normalizeSale = (sale) => ({
@@ -429,6 +440,18 @@ export async function createPurchase(token, purchase) {
   return normalizePurchase(await request("/purchases", {
     token, method: "POST", body: JSON.stringify(purchase),
   }));
+}
+
+export async function fetchPurchase(token,id) {
+  return normalizePurchase(await request(`/purchases/${id}`,{token}));
+}
+
+export async function updatePurchase(token,id,purchase) {
+  return normalizePurchase(await request(`/purchases/${id}`,{token,method:"PUT",body:JSON.stringify(purchase)}));
+}
+
+export async function updatePurchaseStatus(token,id,status) {
+  return normalizePurchase(await request(`/purchases/${id}/status`,{token,method:"PATCH",body:JSON.stringify({status})}));
 }
 
 export async function deletePurchase(token, id) {

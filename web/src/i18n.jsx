@@ -414,6 +414,34 @@ Object.assign(messages.hu,{
   changeProductImageInEdit:"A terméklistában a kép az eredetit nyitja meg. Itt tölthet fel vagy cserélhet képet.",uploading:"Feltöltés…"
 });
 
+Object.assign(messages["zh-CN"],{
+  inventoryVisibleColumns:"显示的库存属性",
+  purchaseUnreceived:"未入库",markPurchaseReceived:"点击审核入库并增加库存",markPurchaseUnreceived:"点击取消入库并冲减库存",
+  purchaseDetails:"入库单详情",openPurchaseDetails:"查看入库单详情",noPurchaseItems:"此入库单没有商品明细",
+  editPurchase:"编辑入库单",purchaseLoadFailed:"入库单读取失败",purchaseUpdateFailed:"入库单修改失败",purchaseStatusUpdateFailed:"入库状态修改失败",
+  purchaseEditInventoryHelp:"已入库单保存修改时，系统会先冲回原明细，再按修改后的明细重新增加库存；未入库单修改不会影响库存。",
+  savePurchaseChanges:"保存入库单修改",
+  movement_purchase_receive:"入库审核",movement_purchase_unreceive:"取消入库",movement_purchase_edit_reverse:"入库编辑冲回",movement_purchase_edit:"入库编辑重记"
+});
+Object.assign(messages.en,{
+  inventoryVisibleColumns:"Visible inventory fields",
+  purchaseUnreceived:"Not received",markPurchaseReceived:"Mark as received and add to inventory",markPurchaseUnreceived:"Cancel receipt and subtract from inventory",
+  purchaseDetails:"Purchase receipt details",openPurchaseDetails:"Open purchase receipt details",noPurchaseItems:"This receipt has no product lines",
+  editPurchase:"Edit purchase receipt",purchaseLoadFailed:"Could not load purchase receipt",purchaseUpdateFailed:"Could not update purchase receipt",purchaseStatusUpdateFailed:"Could not update receipt status",
+  purchaseEditInventoryHelp:"Saving a received receipt first reverses its original lines, then adds the edited lines to inventory. Editing an unreceived receipt does not affect inventory.",
+  savePurchaseChanges:"Save receipt changes",
+  movement_purchase_receive:"Purchase received",movement_purchase_unreceive:"Purchase receipt cancelled",movement_purchase_edit_reverse:"Purchase edit reversal",movement_purchase_edit:"Purchase edit reapplied"
+});
+Object.assign(messages.hu,{
+  inventoryVisibleColumns:"Megjelenő készletmezők",
+  purchaseUnreceived:"Nincs bevételezve",markPurchaseReceived:"Bevételezés és készletnövelés",markPurchaseUnreceived:"Bevételezés visszavonása és készletcsökkentés",
+  purchaseDetails:"Bevételezés részletei",openPurchaseDetails:"Bevételezés részleteinek megnyitása",noPurchaseItems:"A bevételezésnek nincs terméksora",
+  editPurchase:"Bevételezés szerkesztése",purchaseLoadFailed:"A bevételezés nem tölthető be",purchaseUpdateFailed:"A bevételezés nem frissíthető",purchaseStatusUpdateFailed:"A bevételezés állapota nem frissíthető",
+  purchaseEditInventoryHelp:"A bevételezett bizonylat mentése előbb visszafordítja az eredeti sorokat, majd az új sorokat ismét készletre veszi. A nem bevételezett bizonylat szerkesztése nem módosítja a készletet.",
+  savePurchaseChanges:"Módosítások mentése",
+  movement_purchase_receive:"Beszerzés bevételezve",movement_purchase_unreceive:"Bevételezés visszavonva",movement_purchase_edit_reverse:"Beszerzés szerkesztésének visszafordítása",movement_purchase_edit:"Szerkesztett beszerzés újrakönyvelve"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

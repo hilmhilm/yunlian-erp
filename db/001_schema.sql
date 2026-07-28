@@ -35,7 +35,7 @@ create table if not exists customers (
 );
 create table if not exists purchases (
   id bigserial primary key, order_no text not null unique, supplier text not null, warehouse text not null default '主仓库',
-  total numeric(14,2) not null default 0, status text not null default '待审核', created_at timestamptz not null default now()
+  total numeric(14,2) not null default 0, status text not null default '未入库', created_at timestamptz not null default now(), updated_at timestamptz not null default now()
 );
 create table if not exists purchase_items (id bigserial primary key, purchase_id bigint references purchases(id) on delete cascade, product_id bigint references products(id), quantity integer not null check(quantity>0), cost numeric(14,2) not null default 0);
 create table if not exists sales (
