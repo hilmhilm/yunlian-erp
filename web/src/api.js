@@ -310,6 +310,23 @@ export async function fetchProduct(token, id) {
   return normalizeProduct(await request(`/products/${id}`, { token }));
 }
 
+export async function fetchProductSales(token,id) {
+  return (await request(`/products/${id}/sales`,{token})).map(row=>({
+    ...row,
+    databaseId:Number(row.id),
+    id:row.order_no??row.id,
+    date:formatDate(row.created_at),
+    customer:row.customer||"",
+    salesperson:row.created_by||"",
+    currency:row.currency||"HUF",
+    quantity:Number(row.quantity||0),
+    price:Number(row.price||0),
+    lineTotal:Number(row.line_total||0),
+    stockDeducted:Boolean(row.stock_deducted),
+    delivered:Boolean(row.delivered),
+  }));
+}
+
 export async function updateProduct(token, id, product) {
   return normalizeProduct(await request(`/products/${id}`, {
     token,

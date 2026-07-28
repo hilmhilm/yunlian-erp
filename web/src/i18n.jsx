@@ -392,6 +392,28 @@ Object.assign(messages.hu,{
   customerImportSuccess:"{count} vevő importálva.",auditEntity_customer_group:"Vevőcsoport"
 });
 
+Object.assign(messages["zh-CN"],{
+  sortColumn:"按{field}排序",sortAscendingActive:"{field}：当前升序，点击切换为降序",sortDescendingActive:"{field}：当前降序，点击取消排序",
+  originalProductImage:"产品原图",openOriginalImage:"打开产品原图",clickToEnlargeDragToShare:"点击查看原图；图片可直接拖到社交媒体",dragImageToShare:"以下为原始尺寸图片。可用鼠标把图片直接拖到社交媒体或聊天窗口。",
+  exporting:"正在导出…",exportWithoutImages:"不带图片导出",exportWithoutImagesHelp:"文件更小，导出速度更快",exportWithImages:"带图片导出",exportWithImagesHelp:"将产品缩略图嵌入 Excel 第一列",productExportImagePartial:"Excel 已导出，但有 {count} 张图片无法读取。",exportFailed:"导出失败",
+  productSalesOrders:"相关销售单",salesOrdersContainingProduct:"共有 {count} 张销售单包含该产品",noProductSalesOrders:"暂无包含该产品的销售单",
+  changeProductImageInEdit:"产品列表中的图片只用于查看原图；请在这里上传或更换图片。",uploading:"正在上传…"
+});
+Object.assign(messages.en,{
+  sortColumn:"Sort by {field}",sortAscendingActive:"{field}: ascending; click for descending",sortDescendingActive:"{field}: descending; click to clear sorting",
+  originalProductImage:"Original product image",openOriginalImage:"Open original product image",clickToEnlargeDragToShare:"Click for the original image; drag it directly to social media",dragImageToShare:"This is the image at its original size. Drag it directly to a social media or chat window.",
+  exporting:"Exporting…",exportWithoutImages:"Export without images",exportWithoutImagesHelp:"Smaller file and faster export",exportWithImages:"Export with images",exportWithImagesHelp:"Embed product thumbnails in the first Excel column",productExportImagePartial:"Excel was exported, but {count} images could not be loaded.",exportFailed:"Export failed",
+  productSalesOrders:"Related sales orders",salesOrdersContainingProduct:"{count} sales orders contain this product",noProductSalesOrders:"No sales orders contain this product",
+  changeProductImageInEdit:"Images in the product list now open the original. Upload or replace the image here.",uploading:"Uploading…"
+});
+Object.assign(messages.hu,{
+  sortColumn:"Rendezés: {field}",sortAscendingActive:"{field}: növekvő; kattintson a csökkenő sorrendhez",sortDescendingActive:"{field}: csökkenő; kattintson a rendezés törléséhez",
+  originalProductImage:"Eredeti termékkép",openOriginalImage:"Eredeti termékkép megnyitása",clickToEnlargeDragToShare:"Kattintson az eredeti képhez; húzza közvetlenül a közösségi médiába",dragImageToShare:"A kép eredeti méretben látható. Egérrel közvetlenül közösségi média- vagy csevegőablakba húzható.",
+  exporting:"Exportálás…",exportWithoutImages:"Exportálás képek nélkül",exportWithoutImagesHelp:"Kisebb fájl és gyorsabb exportálás",exportWithImages:"Exportálás képekkel",exportWithImagesHelp:"A termékbélyegképek az Excel első oszlopába kerülnek",productExportImagePartial:"Az Excel elkészült, de {count} kép nem volt betölthető.",exportFailed:"Az exportálás sikertelen",
+  productSalesOrders:"Kapcsolódó rendelések",salesOrdersContainingProduct:"{count} értékesítési rendelés tartalmazza ezt a terméket",noProductSalesOrders:"Nincs ezt a terméket tartalmazó rendelés",
+  changeProductImageInEdit:"A terméklistában a kép az eredetit nyitja meg. Itt tölthet fel vagy cserélhet képet.",uploading:"Feltöltés…"
+});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

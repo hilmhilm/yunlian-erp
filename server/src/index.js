@@ -524,6 +524,13 @@ app.get("/api/products/:id", requireAnyPermission("page.products","page.inventor
   const movements=await pool.query("select id,warehouse,quantity,movement_type,reference_no,created_by,created_at from inventory_movements where product_id=$1 order by created_at desc,id desc limit 20",[req.params.id]);
   res.json({...product.rows[0],movements:movements.rows});
 }));
+app.get("/api/products/:id/sales", requirePermission("page.products"), asyncRoute(async(req,res)=>{
+  if(!(await pool.query("select 1 from products where id=$1 and deleted_at is null",[req.params.id])).rowCount)return res.status(404).json({error:"product not found"});
+  const result=await pool.query(`select s.id,s.order_no,s.created_at,s.created_by,s.currency,s.status,s.stock_deducted,s.delivered,coalesce(c.name,'') customer,si.quantity,si.price,(si.quantity*si.price)::numeric line_total
+    from sale_items si join sales s on s.id=si.sale_id left join customers c on c.id=s.customer_id
+    where si.product_id=$1 and s.deleted_at is null order by s.created_at desc,s.id desc`,[req.params.id]);
+  res.json(result.rows);
+}));
 app.post("/api/products", requirePermission("products.manage"), asyncRoute(async (req, res) => {
   const b=req.body||{},sku=String(b.sku||"").trim(),name=String(b.name||"").trim(),name2=String(b.name2||"").trim(),boxSize=Number(b.boxSize??1),packageSize=Number(b.packageSize??1),cost=Number(b.cost??0),priceHuf=Number(b.priceHuf??b.price??0),priceEur=Number(b.priceEur??0),priceUsd=Number(b.priceUsd??0);
   if(!sku||!name||!Number.isSafeInteger(boxSize)||boxSize<=0||!Number.isSafeInteger(packageSize)||packageSize<=0||[cost,priceHuf,priceEur,priceUsd].some(value=>!Number.isFinite(value)||value<0))return res.status(400).json({error:"invalid product data"});
