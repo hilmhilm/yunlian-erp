@@ -48,7 +48,7 @@ const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date
 const businessDateTime = date => new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Budapest",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(date);
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.29-1";
+const uiVersion = "2026.07.29-2";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -827,19 +827,47 @@ function DeliveryDetailsModal({customer,sale,saving,onClose,onSave}) {
 function DeliveryNote({sale,loading,error,onBack,settings,hideFinancial=false}) {
   const {t}=useI18n();
   const storageKey=hideFinancial?"erp-picking-note-columns-v2":"erp-delivery-note-columns";
-  const allColumns=[{key:"sku",label:"productSku",width:"15%"},{key:"barcode",label:"productBarcode",width:"17%"},{key:"name",label:"productName",width:"23%"},{key:"storageLocation",label:"storageLocation",width:"12%",pickingOnly:true},{key:"name2",label:"productName2",width:"21%"},{key:"stock",label:"currentStock",width:"9%"},{key:"quantity",label:"quantity",width:"8%"},{key:"unitPrice",label:"unitPrice",width:"11%"},{key:"lineTotal",label:"total",width:"12%"}];
-  const availableColumns=allColumns.filter(column=>(!column.pickingOnly||hideFinancial)&&(!hideFinancial||!["stock","unitPrice","lineTotal"].includes(column.key)));
+  const allColumns=[{key:"imageUrl",label:"productImage",width:"12%",excelWidth:14,deliveryOnly:true},{key:"sku",label:"productSku",width:"15%",excelWidth:18},{key:"barcode",label:"productBarcode",width:"17%",excelWidth:20},{key:"name",label:"productName",width:"23%",excelWidth:28},{key:"storageLocation",label:"storageLocation",width:"12%",excelWidth:16,pickingOnly:true},{key:"name2",label:"productName2",width:"21%",excelWidth:28},{key:"stock",label:"currentStock",width:"9%",excelWidth:12},{key:"quantity",label:"quantity",width:"8%",excelWidth:12},{key:"unitPrice",label:"unitPrice",width:"11%",excelWidth:16},{key:"lineTotal",label:"total",width:"12%",excelWidth:16}];
+  const availableColumns=allColumns.filter(column=>(!column.pickingOnly||hideFinancial)&&(!column.deliveryOnly||!hideFinancial)&&(!hideFinancial||!["stock","unitPrice","lineTotal"].includes(column.key)));
   const defaultColumns=hideFinancial?["sku","barcode","name","storageLocation","quantity"]:["sku","barcode","name","stock","quantity","unitPrice","lineTotal"];
   const [selectedColumns,setSelectedColumns]=useState(()=>{try{const saved=JSON.parse(localStorage.getItem(storageKey)||"null"),valid=Array.isArray(saved)?saved.filter(key=>availableColumns.some(column=>column.key===key)):[];return valid.length?valid:defaultColumns}catch{return defaultColumns}});
+  const [exportBusy,setExportBusy]=useState(false),[exportMessage,setExportMessage]=useState("");
   useEffect(()=>{try{localStorage.setItem(storageKey,JSON.stringify(selectedColumns))}catch{}},[storageKey,selectedColumns]);
   const visibleColumns=availableColumns.filter(column=>selectedColumns.includes(column.key));
   const toggleColumn=key=>setSelectedColumns(current=>current.includes(key)?(current.length>1?current.filter(item=>item!==key):current):[...current,key]);
-  const renderValue=(item,key)=>({sku:item.sku,storageLocation:item.storageLocation||"—",barcode:item.barcode||"—",name:item.name,name2:item.name2||"—",stock:item.stock,quantity:<b>{item.quantity}</b>,unitPrice:money(item.price,sale?.currency),lineTotal:money(item.price*item.quantity,sale?.currency)}[key]);
+  const renderValue=(item,key)=>({imageUrl:item.imageUrl?<img className="delivery-product-image" src={item.imageUrl} alt=""/>:"—",sku:item.sku,storageLocation:item.storageLocation||"—",barcode:item.barcode||"—",name:item.name,name2:item.name2||"—",stock:item.stock,quantity:<b>{item.quantity}</b>,unitPrice:money(item.price,sale?.currency),lineTotal:money(item.price*item.quantity,sale?.currency)}[key]);
+  const spreadsheetValue=(item,key)=>({imageUrl:"",sku:String(item.sku||""),storageLocation:item.storageLocation||"",barcode:String(item.barcode||""),name:item.name||"",name2:item.name2||"",stock:Number(item.stock||0),quantity:Number(item.quantity||0),unitPrice:Number(item.price||0),lineTotal:Number(item.price||0)*Number(item.quantity||0)}[key]);
+  const exportExcel=async()=>{
+    if(hideFinancial||!sale||!visibleColumns.length)return;
+    setExportBusy(true);setExportMessage("");
+    try{
+      const ExcelJS=await loadExcelJs(),workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("deliveryNote"));
+      sheet.addRow(visibleColumns.map(column=>t(column.label)));
+      sale.items.forEach(item=>sheet.addRow(visibleColumns.map(column=>spreadsheetValue(item,column.key))));
+      formatProductWorksheet(sheet,visibleColumns.map(column=>column.excelWidth));
+      visibleColumns.forEach((column,index)=>{
+        const excelColumn=sheet.getColumn(index+1);
+        excelColumn.alignment={vertical:"middle",wrapText:true};
+        if(["unitPrice","lineTotal"].includes(column.key))excelColumn.numFmt=sale.currency==="HUF"?'#,##0 "Ft"':`#,##0.00 "${sale.currency}"`;
+      });
+      const imageColumn=visibleColumns.findIndex(column=>column.key==="imageUrl");
+      let failedImages=0;
+      if(imageColumn>=0){
+        const imageRows=sale.items.map((item,index)=>({imageUrl:item.imageUrl,row:index+2})).filter(item=>item.imageUrl);
+        for(let start=0;start<imageRows.length;start+=6){
+          const batch=await Promise.all(imageRows.slice(start,start+6).map(async item=>{try{return {...item,image:await loadProductImageForExcel(item.imageUrl)}}catch{return {...item,failed:true}}}));
+          batch.forEach(item=>{if(item.failed){failedImages+=1;return}sheet.getRow(item.row).height=48;const imageId=workbook.addImage(item.image),scale=Math.min(52/item.image.width,52/item.image.height);sheet.addImage(imageId,{tl:{col:imageColumn+0.12,row:item.row-0.9},ext:{width:item.image.width*scale,height:item.image.height*scale}})});
+        }
+      }
+      await downloadWorkbook(workbook,`delivery-note-${String(sale.id||sale.databaseId).replace(/[^\w-]+/g,"-")}-${localDateValue()}.xlsx`);
+      if(failedImages)setExportMessage(t("productExportImagePartial").replace("{count}",failedImages));
+    }catch(exportError){setExportMessage(`${t("exportFailed")}：${exportError.message}`)}finally{setExportBusy(false)}
+  };
   if(loading)return <Page><div className="delivery-loading empty">{t("loading")}</div></Page>;
   if(error||!sale)return <Page><div className="delivery-note-page"><div className="form-error detail-error">{error||t("dataLoadFailed")}</div><button className="outline" onClick={onBack}>{t("backToSales")}</button></div></Page>;
   const quantity=sale.items.reduce((sum,item)=>sum+item.quantity,0);
   const customerCompanyAddress=[sale.customerPostalCode,sale.customerCity,sale.customerAddress].filter(Boolean).join(" ")||"—";
-  return <Page><div className="delivery-note-page"><div className="delivery-toolbar"><button className="outline" onClick={onBack}>{t("backToSales")}</button><details className="column-selector delivery-column-selector"><summary className="outline"><Columns3 size={16}/>{t("displayAttributes")}</summary><div className="column-selector-menu"><div className="column-selector-title">{t("deliveryNoteColumns")}</div>{availableColumns.map(column=><label key={column.key}><input type="checkbox" checked={selectedColumns.includes(column.key)} onChange={()=>toggleColumn(column.key)}/><span>{t(column.label)}</span></label>)}<button type="button" className="outline" onClick={()=>setSelectedColumns(defaultColumns)}>{t("resetColumns")}</button></div></details><button className="primary" onClick={()=>window.print()}><Printer size={16}/>{t("printA4")}</button></div><article className="delivery-sheet">
+  return <Page><div className="delivery-note-page"><div className="delivery-toolbar"><button className="outline" onClick={onBack}>{t("backToSales")}</button><details className="column-selector delivery-column-selector"><summary className="outline"><Columns3 size={16}/>{t("displayAttributes")}</summary><div className="column-selector-menu"><div className="column-selector-title">{t("deliveryNoteColumns")}</div>{availableColumns.map(column=><label key={column.key}><input type="checkbox" checked={selectedColumns.includes(column.key)} onChange={()=>toggleColumn(column.key)}/><span>{t(column.label)}</span></label>)}<button type="button" className="outline" onClick={()=>setSelectedColumns(defaultColumns)}>{t("resetColumns")}</button></div></details>{!hideFinancial&&<button className="outline" disabled={exportBusy||!visibleColumns.length} onClick={exportExcel}><Download size={16}/>{exportBusy?t("exporting"):t("exportExcel")}</button>}<button className="primary" onClick={()=>window.print()}><Printer size={16}/>{t("printA4")}</button></div>{exportMessage&&<div className="delivery-export-message">{exportMessage}</div>}<article className="delivery-sheet">
     <header className="delivery-sheet-head"><b>{sale.databaseId}</b><h1>{t(hideFinancial?"pickingNote":"deliveryNote")}</h1><span>{sale.id}</span></header>
     <section className="delivery-company"><b>{settings.companyName}</b><span>{settings.companyAddress}</span><span>{settings.companyPhone}</span><span>{settings.companyEmail}</span><span>{settings.companyWebsite}</span><span>{settings.taxNumber&&`${t("taxNumber")}：${settings.taxNumber}`}</span></section>
     <section className="delivery-parties"><div><p><b>{t("orderId")}：</b>{sale.databaseId}</p><p><b>{t("customer")}：</b>{sale.customer||t("walkInCustomer")}</p><p><b>{t("companyAddress")}：</b>{customerCompanyAddress}</p></div><div><p><b>{t("salesOrderNo")}：</b>{sale.id} · {sale.salesperson}</p><p><b>{t("deliveryPhone")}：</b>{sale.deliveryPhone||sale.customerPhone||"—"}</p><p><b>{t("vehiclePlate")}：</b>{sale.vehiclePlate||"—"}</p></div></section>
