@@ -259,6 +259,16 @@ Object.assign(messages.hu,{
   sale:"Értékesítés",negative_sale:"Negatív értékesítés",sale_return:"Értékesítési visszáru"
 });
 
+Object.assign(messages["zh-CN"],{
+  chooseDateRange:"选择日期范围",quickDateRange:"快捷日期",customDateRange:"自定义日期",yesterday:"昨天",last7Days:"近7天",thisWeek:"本周",lastWeek:"上周",lastMonth:"上个月",thisYear:"今年",lastYear:"去年",previousMonth:"上个月",nextMonth:"下个月",selectRangeStart:"请选择起始日期",selectRangeEnd:"请选择结束日期"
+});
+Object.assign(messages.en,{
+  chooseDateRange:"Choose date range",quickDateRange:"Quick ranges",customDateRange:"Custom range",yesterday:"Yesterday",last7Days:"Last 7 days",thisWeek:"This week",lastWeek:"Last week",lastMonth:"Last month",thisYear:"This year",lastYear:"Last year",previousMonth:"Previous month",nextMonth:"Next month",selectRangeStart:"Choose the start date",selectRangeEnd:"Choose the end date"
+});
+Object.assign(messages.hu,{
+  chooseDateRange:"Dátumtartomány kiválasztása",quickDateRange:"Gyors időszakok",customDateRange:"Egyéni időszak",yesterday:"Tegnap",last7Days:"Elmúlt 7 nap",thisWeek:"Ez a hét",lastWeek:"Múlt hét",lastMonth:"Múlt hónap",thisYear:"Ez az év",lastYear:"Múlt év",previousMonth:"Előző hónap",nextMonth:"Következő hónap",selectRangeStart:"Válassza ki a kezdő dátumot",selectRangeEnd:"Válassza ki a záró dátumot"
+});
+
 Object.assign(messages["zh-CN"],{reportCustomerSearchPlaceholder:"输入至少3个字符搜索客户",reportProductSearchPlaceholder:"输入至少3个字符搜索货号、条码或产品名",reportLookupNoMatches:"没有包含这些字符的匹配条目"});
 Object.assign(messages.en,{reportCustomerSearchPlaceholder:"Enter at least 3 characters to find a customer",reportProductSearchPlaceholder:"Enter at least 3 characters to find a SKU, barcode or product",reportLookupNoMatches:"No matching entries contain these characters"});
 Object.assign(messages.hu,{reportCustomerSearchPlaceholder:"Adjon meg legalább 3 karaktert a vevő kereséséhez",reportProductSearchPlaceholder:"Adjon meg legalább 3 karaktert cikkszám, vonalkód vagy termék kereséséhez",reportLookupNoMatches:"Nincs ilyen karaktereket tartalmazó találat"});
