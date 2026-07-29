@@ -452,6 +452,10 @@ Object.assign(messages.hu,{
   inboundTime:"Bevételezés ideje",productPurchaseOrders:"Kapcsolódó bevételezések",purchaseOrdersContainingProduct:"{count} bevételezés tartalmazza ezt a terméket",noProductPurchaseOrders:"Nincs ezt a terméket tartalmazó bevételezés"
 });
 
+Object.assign(messages["zh-CN"],{expandSubcategories:"展开 {count} 个子分类",collapseSubcategories:"收起 {count} 个子分类"});
+Object.assign(messages.en,{expandSubcategories:"Expand {count} subcategories",collapseSubcategories:"Collapse {count} subcategories"});
+Object.assign(messages.hu,{expandSubcategories:"{count} alkategória kibontása",collapseSubcategories:"{count} alkategória összecsukása"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
