@@ -48,7 +48,7 @@ const localDateValue = (date=new Date()) => `${date.getFullYear()}-${String(date
 const businessDateTime = date => new Intl.DateTimeFormat("sv-SE",{timeZone:"Europe/Budapest",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit",hourCycle:"h23"}).format(date);
 const deliveryDateLabel = value => {const date=value?new Date(`${String(value).slice(0,10)}T00:00:00`):new Date();return `${String(date.getDate()).padStart(2,"0")}/${String(date.getMonth()+1).padStart(2,"0")}/${date.getFullYear()}`};
 const defaultSalesFilters = () => ({startDate:localDateValue(),endDate:localDateValue()});
-const uiVersion = "2026.07.29-2";
+const uiVersion = "2026.07.29-3";
 const defaultSystemSettings={companyName:"云链 ERP",taxNumber:"",registrationNumber:"",companyAddress:"",companyPhone:"",companyEmail:"",companyWebsite:"",eurHufRate:357.351,usdHufRate:313.465,defaultCurrency:"HUF",allowOverselling:true,lowStockThreshold:20,defaultWarehouse:"主仓库",salesOrderPrefix:"Vs",purchaseOrderPrefix:"Vin"};
 const saleStatusLabel = (status,t) => t({"已完成":"saleStatusCompleted","部分退货":"saleStatusPartiallyReturned","已退货":"saleStatusReturned"}[status],status);
 
@@ -842,9 +842,35 @@ function DeliveryNote({sale,loading,error,onBack,settings,hideFinancial=false}) 
     setExportBusy(true);setExportMessage("");
     try{
       const ExcelJS=await loadExcelJs(),workbook=new ExcelJS.Workbook(),sheet=workbook.addWorksheet(t("deliveryNote"));
-      sheet.addRow(visibleColumns.map(column=>t(column.label)));
+      const layoutWidth=Math.max(visibleColumns.length,4),orderDate=sale.created_at?new Date(sale.created_at).toLocaleString():sale.date;
+      const titleRow=sheet.addRow([t("deliveryNote")]);sheet.mergeCells(titleRow.number,1,titleRow.number,layoutWidth);titleRow.height=30;titleRow.getCell(1).font={bold:true,size:18,color:{argb:"FF1D2F3B"}};titleRow.getCell(1).alignment={horizontal:"center",vertical:"middle"};
+      sheet.addRow([t("companyName"),settings.companyName||"",t("taxNumber"),settings.taxNumber||""]);
+      sheet.addRow([t("companyAddress"),settings.companyAddress||"",t("companyPhone"),settings.companyPhone||""]);
+      sheet.addRow([t("companyEmail"),settings.companyEmail||"",t("companyWebsite"),settings.companyWebsite||""]);
+      sheet.addRow([]);
+      sheet.addRow([t("orderId"),sale.databaseId,t("salesOrderNo"),sale.id||""]);
+      sheet.addRow([t("customer"),sale.customer||t("walkInCustomer"),t("salesperson"),sale.salesperson||""]);
+      sheet.addRow([t("companyAddress"),customerCompanyAddress,t("deliveryPhone"),sale.deliveryPhone||sale.customerPhone||""]);
+      sheet.addRow([t("vehiclePlate"),sale.vehiclePlate||"",t("currencyChoice"),sale.currency||""]);
+      sheet.addRow([t("orderDate"),orderDate||"",t("deliveryDate"),deliveryDateLabel(sale.deliveryDate)]);
+      sheet.addRow([t("salesNote"),sale.notes||""]);
+      sheet.addRow([]);
+      const productHeaderRow=sheet.addRow(visibleColumns.map(column=>t(column.label))).number;
       sale.items.forEach(item=>sheet.addRow(visibleColumns.map(column=>spreadsheetValue(item,column.key))));
-      formatProductWorksheet(sheet,visibleColumns.map(column=>column.excelWidth));
+      const totalRow=sheet.addRow(visibleColumns.map((column,index)=>column.key==="quantity"?quantity:column.key==="lineTotal"?Number(sale.total||0):index===0?t("grandTotal"):""));
+      sheet.addRow([]);
+      const signatureRow=sheet.addRow([t("deliverySignature")]);sheet.mergeCells(signatureRow.number,1,signatureRow.number,layoutWidth);
+      const generatedRow=sheet.addRow([t("deliveryGeneratedBy")]);sheet.mergeCells(generatedRow.number,1,generatedRow.number,layoutWidth);
+      sheet.views=[{state:"frozen",ySplit:productHeaderRow}];
+      sheet.columns=Array.from({length:layoutWidth},(_,index)=>({width:visibleColumns[index]?.excelWidth||(index%2?28:16)}));
+      for(let rowNumber=2;rowNumber<productHeaderRow-1;rowNumber++){
+        const row=sheet.getRow(rowNumber);row.alignment={vertical:"middle",wrapText:true};row.height=21;
+        [1,3].forEach(columnNumber=>{row.getCell(columnNumber).font={bold:true,color:{argb:"FF52616D"}}});
+      }
+      const header=sheet.getRow(productHeaderRow);header.height=24;header.font={bold:true,color:{argb:"FFFFFFFF"}};header.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FF258DCA"}};header.alignment={vertical:"middle",wrapText:true};
+      totalRow.font={bold:true};totalRow.fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFEAF4FA"}};
+      signatureRow.getCell(1).alignment={horizontal:"center"};generatedRow.getCell(1).alignment={horizontal:"center"};generatedRow.getCell(1).font={italic:true,color:{argb:"FF667783"}};
+      sheet.autoFilter={from:{row:productHeaderRow,column:1},to:{row:productHeaderRow+sale.items.length,column:visibleColumns.length}};
       visibleColumns.forEach((column,index)=>{
         const excelColumn=sheet.getColumn(index+1);
         excelColumn.alignment={vertical:"middle",wrapText:true};
@@ -853,7 +879,7 @@ function DeliveryNote({sale,loading,error,onBack,settings,hideFinancial=false}) 
       const imageColumn=visibleColumns.findIndex(column=>column.key==="imageUrl");
       let failedImages=0;
       if(imageColumn>=0){
-        const imageRows=sale.items.map((item,index)=>({imageUrl:item.imageUrl,row:index+2})).filter(item=>item.imageUrl);
+        const imageRows=sale.items.map((item,index)=>({imageUrl:item.imageUrl,row:productHeaderRow+index+1})).filter(item=>item.imageUrl);
         for(let start=0;start<imageRows.length;start+=6){
           const batch=await Promise.all(imageRows.slice(start,start+6).map(async item=>{try{return {...item,image:await loadProductImageForExcel(item.imageUrl)}}catch{return {...item,failed:true}}}));
           batch.forEach(item=>{if(item.failed){failedImages+=1;return}sheet.getRow(item.row).height=48;const imageId=workbook.addImage(item.image),scale=Math.min(52/item.image.width,52/item.image.height);sheet.addImage(imageId,{tl:{col:imageColumn+0.12,row:item.row-0.9},ext:{width:item.image.width*scale,height:item.image.height*scale}})});
