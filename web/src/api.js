@@ -104,6 +104,8 @@ const normalizeCustomer = (customer) => ({
   taxNumber: customer.tax_number ?? customer.taxNumber ?? "",
   vehiclePlate: customer.vehicle_plate ?? customer.vehiclePlate ?? "",
   vehiclePlates: Array.isArray(customer.vehicle_plates ?? customer.vehiclePlates) ? (customer.vehicle_plates ?? customer.vehiclePlates).filter(Boolean) : [],
+  saleCount: Number(customer.sale_count ?? customer.saleCount ?? 0),
+  lastSaleAt: customer.last_sale_at ?? customer.lastSaleAt ?? null,
   country: customer.country || "Magyarország",
   email: customer.email || "",
 });

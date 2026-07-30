@@ -646,8 +646,9 @@ app.put("/api/products/:id/translations/:locale", requirePermission("products.ma
 
 app.get("/api/customers", requireAnyPermission("page.dashboard","page.customers","page.sales","page.scanSales","page.issueInvoice","page.reports"), asyncRoute(async (req, res) => {
   const q=`%${req.query.search||""}%`;
-  const result=await pool.query(`select c.*,g.name customer_group_name,coalesce(g.discount_percent,0) group_discount_percent,coalesce((select array_agg(distinct trim(s.vehicle_plate)) from sales s where s.customer_id=c.id and s.deleted_at is null and nullif(trim(s.vehicle_plate),'') is not null),'{}'::text[]) vehicle_plates
+  const result=await pool.query(`select c.*,g.name customer_group_name,coalesce(g.discount_percent,0) group_discount_percent,coalesce((select array_agg(distinct trim(s.vehicle_plate)) from sales s where s.customer_id=c.id and s.deleted_at is null and nullif(trim(s.vehicle_plate),'') is not null),'{}'::text[]) vehicle_plates,coalesce(ss.sale_count,0)::int sale_count,ss.last_sale_at
     from customers c left join customer_groups g on g.id=c.customer_group_id and g.deleted_at is null
+    left join (select customer_id,count(*)::int sale_count,max(created_at) last_sale_at from sales where deleted_at is null and customer_id is not null group by customer_id) ss on ss.customer_id=c.id
     where c.deleted_at is null and (c.name ilike $1 or c.phone ilike $1 or c.vehicle_plate ilike $1 or c.city ilike $1 or c.tax_number ilike $1 or c.notes ilike $1 or g.name ilike $1 or exists(select 1 from sales s where s.customer_id=c.id and s.deleted_at is null and s.vehicle_plate ilike $1))
     order by c.id desc`,[q]);
   res.json(result.rows);
@@ -1190,13 +1191,19 @@ const reportQueryValues=req=>{
   if(!validIsoDate(startDate)||!validIsoDate(endDate)||startDate>endDate||!currencies.has(currency)){const error=new Error("invalid report filters");error.status=400;throw error}
   return {startDate,endDate,currency};
 };
+const reportEntityIdValue=(value,label)=>{
+  const text=String(value??"").trim();
+  if(!text)return null;
+  if(!/^[1-9]\d*$/.test(text)){const error=new Error(`invalid ${label} filter`);error.status=400;throw error}
+  return text;
+};
 const reportDateValue=value=>{
   if(value instanceof Date&&!Number.isNaN(value.getTime())){const parts=Object.fromEntries(new Intl.DateTimeFormat("en",{timeZone:businessTimezone,year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(value).filter(part=>part.type!=="literal").map(part=>[part.type,part.value]));return `${parts.year}-${parts.month}-${parts.day}`}
   return String(value||"").slice(0,10);
 };
 
 app.get("/api/reports/sales",requirePermission("page.reports"),asyncRoute(async(req,res)=>{
-  const {startDate,endDate,currency}=reportQueryValues(req),salesperson=String(req.query.salesperson||"").trim(),customerId=Number(req.query.customerId)||null,productId=Number(req.query.productId)||null,category=String(req.query.category||"").trim(),settlement=String(req.query.settlement||"").trim();
+  const {startDate,endDate,currency}=reportQueryValues(req),salesperson=String(req.query.salesperson||"").trim(),customerId=reportEntityIdValue(req.query.customerId,"customer"),productId=reportEntityIdValue(req.query.productId,"product"),category=String(req.query.category||"").trim(),settlement=String(req.query.settlement||"").trim();
   if(settlement&&!new Set(["unpaid","partial","paid"]).has(settlement))return res.status(400).json({error:"invalid settlement filter"});
   const params=[businessTimezone,startDate,endDate,currency,salesperson||null,customerId,productId,category||null,settlement||null];
   const eventSql=`with sale_paid as (select sale_id,coalesce(sum(amount),0)::numeric paid from sale_payments group by sale_id),events as (
@@ -1251,7 +1258,7 @@ app.get("/api/reports/finance",requirePermission("page.reports"),asyncRoute(asyn
 }));
 
 app.get("/api/reports/customers",requirePermission("page.reports"),asyncRoute(async(req,res)=>{
-  const {startDate,endDate,currency}=reportQueryValues(req),customerId=Number(req.query.customerId)||null;
+  const {startDate,endDate,currency}=reportQueryValues(req),customerId=reportEntityIdValue(req.query.customerId,"customer");
   const params=[businessTimezone,startDate,endDate,currency,customerId];
   const rows=await pool.query(`with selected_customers as (select * from customers c where c.deleted_at is null and ($5::bigint is null or c.id=$5)),orders as (
     select s.customer_id,count(*)::int order_count,coalesce(sum(s.total),0)::numeric gross_sales,coalesce(sum((select sum(si.quantity) from sale_items si where si.sale_id=s.id)),0)::int quantity
