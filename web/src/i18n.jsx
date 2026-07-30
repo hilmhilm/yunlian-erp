@@ -258,6 +258,9 @@ Object.assign(messages.hu,{
   date:"Dátum",transactionType:"Tranzakció típusa",incomeExpenseType:"Irány",lastPurchaseDate:"Utolsó vásárlás",occurredOn:"Teljesítés napja",paymentMethod:"Fizetési mód",referenceNo:"Hivatkozás",sourceType:"Forrás típusa",createdBy:"Létrehozta",createdAt:"Létrehozva",rowKey:"Részletazonosító",
   sale:"Értékesítés",negative_sale:"Negatív értékesítés",sale_return:"Értékesítési visszáru"
 });
+Object.assign(messages["zh-CN"],{selectCustomerForDetails:"请先选择客户并点击查询，查看该客户的明细数据"});
+Object.assign(messages.en,{selectCustomerForDetails:"Select a customer and click Search to view that customer's details"});
+Object.assign(messages.hu,{selectCustomerForDetails:"Válasszon vevőt, majd kattintson a Keresés gombra a vevő részleteinek megtekintéséhez"});
 
 Object.assign(messages["zh-CN"],{
   chooseDateRange:"选择日期范围",quickDateRange:"快捷日期",customDateRange:"自定义日期",yesterday:"昨天",last7Days:"近7天",thisWeek:"本周",lastWeek:"上周",lastMonth:"上个月",thisYear:"今年",lastYear:"去年",previousMonth:"上个月",nextMonth:"下个月",selectRangeStart:"请选择起始日期",selectRangeEnd:"请选择结束日期"
