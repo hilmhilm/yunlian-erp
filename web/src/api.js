@@ -163,6 +163,8 @@ const normalizeSale = (sale) => ({
   customerTaxNumber: sale.customer_tax_number ?? sale.customerTaxNumber ?? "",
   customerEmail: sale.customer_email ?? sale.customerEmail ?? "",
   customerDiscountPercent: Number(sale.customer_discount_percent ?? sale.customerDiscountPercent ?? 0),
+  manualDiscountPercent: Number(sale.manual_discount_percent ?? sale.manualDiscountPercent ?? 0),
+  pricingMode: sale.pricing_mode ?? sale.pricingMode ?? "standard",
   paidTotal: Number(sale.paid_total ?? sale.paidTotal ?? 0),
   balance: Number(sale.balance ?? Math.max(Number(sale.total || 0)-Number(sale.paid_total ?? sale.paidTotal ?? 0),0)),
   stockDeducted: Boolean(sale.stock_deducted),
@@ -517,6 +519,14 @@ export async function deleteSale(token, saleId) {
 
 export async function fetchSale(token, id) {
   return normalizeSaleDetail(await request(`/sales/${id}`, { token }));
+}
+
+export async function fetchCustomerLastSalePrices(token, customerId, currency, excludeSaleId = null) {
+  const query = new URLSearchParams({ currency });
+  if (excludeSaleId) query.set("excludeSaleId", String(excludeSaleId));
+  return (await request(`/customers/${customerId}/last-sale-prices?${query}`, { token })).map(row=>({
+    productId:Number(row.product_id),price:Number(row.price),saleId:Number(row.sale_id),orderNo:row.order_no,createdAt:row.created_at,
+  }));
 }
 
 export async function updateSaleStatus(token, saleId, changes) {

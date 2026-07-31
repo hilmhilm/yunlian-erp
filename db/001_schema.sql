@@ -40,7 +40,8 @@ create table if not exists purchases (
 create table if not exists purchase_items (id bigserial primary key, purchase_id bigint references purchases(id) on delete cascade, product_id bigint references products(id), quantity integer not null check(quantity>0), cost numeric(14,2) not null default 0);
 create table if not exists sales (
   id bigserial primary key, order_no text not null unique, customer_id bigint references customers(id), total numeric(14,2) not null default 0,
-  status text not null default '已完成', customer_discount_percent numeric(5,2) not null default 0, created_by text not null, created_at timestamptz not null default now()
+  status text not null default '已完成', customer_discount_percent numeric(5,2) not null default 0, manual_discount_percent numeric(5,2) not null default 0,
+  pricing_mode text not null default 'standard', created_by text not null, created_at timestamptz not null default now()
 );
 create table if not exists sale_items (id bigserial primary key, sale_id bigint references sales(id) on delete cascade, product_id bigint references products(id), quantity integer not null check(quantity>0), price numeric(14,2) not null default 0);
 create table if not exists inventory_movements (id bigserial primary key, product_id bigint references products(id), warehouse text not null default '主仓库', quantity integer not null, movement_type text not null, reference_no text, created_by text, created_at timestamptz not null default now());

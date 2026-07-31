@@ -95,15 +95,32 @@ const salesPriceForCurrency = (product,currency,settings) => {
   }
   return Number(currency==="EUR"?product.price_eur:product.price_usd)||0;
 };
+const applySalesDiscount = (price,currency,discountPercent=0) => {
+  const discounted=Number(price||0)*(1-Number(discountPercent||0)/100);
+  return currency==="HUF"?Math.round(discounted):Number(discounted.toFixed(2));
+};
 const discountedSalesPrice = (product,currency,settings,discountPercent=0) => {
-  const price=salesPriceForCurrency(product,currency,settings)*(1-Number(discountPercent||0)/100);
-  return currency==="HUF"?Math.round(price):Number(price.toFixed(2));
+  return applySalesDiscount(salesPriceForCurrency(product,currency,settings),currency,discountPercent);
 };
 const customerDiscountForSale = async (client,customerId) => {
   if(!customerId)return 0;
   const customer=await client.query("select c.id,coalesce(g.discount_percent,0)::numeric discount_percent from customers c left join customer_groups g on g.id=c.customer_group_id and g.deleted_at is null where c.id=$1 and c.deleted_at is null",[customerId]);
   if(!customer.rowCount){const error=new Error("customer not found");error.status=400;throw error}
   return Number(customer.rows[0].discount_percent);
+};
+const salePricingOptions = body => {
+  const manualDiscountPercent=Number(body.manualDiscountPercent??0),pricingMode=String(body.pricingMode||"standard");
+  if(!Number.isFinite(manualDiscountPercent)||manualDiscountPercent<0||manualDiscountPercent>100){const error=new Error("manual discount must be between 0 and 100");error.status=400;throw error}
+  if(!new Set(["standard","last_customer"]).has(pricingMode)){const error=new Error("invalid sale pricing mode");error.status=400;throw error}
+  return {manualDiscountPercent,pricingMode};
+};
+const lastCustomerSalePrices = async (client,customerId,currency,{productIds=null,excludeSaleId=null}={}) => {
+  const params=[customerId,currency,excludeSaleId],productFilter=productIds?.length?(params.push(productIds),` and si.product_id=any($${params.length}::bigint[])`):"";
+  const result=await client.query(`select distinct on(si.product_id) si.product_id,si.price,s.id sale_id,s.order_no,s.created_at
+    from sale_items si join sales s on s.id=si.sale_id
+    where s.customer_id=$1 and s.currency=$2 and s.deleted_at is null and si.quantity>0 and ($3::bigint is null or s.id<>$3)${productFilter}
+    order by si.product_id,s.created_at desc,s.id desc,si.id desc`,params);
+  return result.rows;
 };
 const productStatisticsSql="select (select coalesce(sum(si.quantity),0)::int from sale_items si join sales s on s.id=si.sale_id where si.product_id=$1 and s.deleted_at is null) sales_quantity,(select imported_purchase_quantity from products where id=$1)+(select coalesce(sum(pi.quantity),0)::int from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null and p.status='已入库') purchase_quantity,(select max(p.received_at) from purchase_items pi join purchases p on p.id=pi.purchase_id where pi.product_id=$1 and p.deleted_at is null and p.status='已入库') inbound_at";
 const nextSalesOrderNumber = async (client,prefix) => {
@@ -653,6 +670,14 @@ app.get("/api/customers", requireAnyPermission("page.dashboard","page.customers"
     order by c.id desc`,[q]);
   res.json(result.rows);
 }));
+app.get("/api/customers/:id/last-sale-prices", requireAnyPermission("page.scanSales","page.sales"), asyncRoute(async (req,res)=>{
+  const customerId=Number(req.params.id),currency=String(req.query.currency||"").toUpperCase(),excludeSaleId=req.query.excludeSaleId?Number(req.query.excludeSaleId):null;
+  if(!Number.isSafeInteger(customerId)||customerId<=0)return res.status(400).json({error:"invalid customer"});
+  if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
+  if(excludeSaleId!==null&&(!Number.isSafeInteger(excludeSaleId)||excludeSaleId<=0))return res.status(400).json({error:"invalid excluded sale"});
+  if(!(await pool.query("select 1 from customers where id=$1 and deleted_at is null",[customerId])).rowCount)return res.status(404).json({error:"customer not found"});
+  res.json(await lastCustomerSalePrices(pool,customerId,currency,{excludeSaleId}));
+}));
 app.post("/api/customers", requirePermission("customers.manage"), asyncRoute(async (req,res)=>{
   const b=req.body||{},name=String(b.name||"").trim();
   if(!name)return res.status(400).json({error:"customer name is required"});
@@ -1046,9 +1071,11 @@ app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
   const currency=String(body.currency||settings.default_currency).toUpperCase(),customerId=body.customerId?Number(body.customerId):null;
+  const {manualDiscountPercent,pricingMode}=salePricingOptions(body);
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
   if(customerId!==null&&(!Number.isSafeInteger(customerId)||customerId<=0))return res.status(400).json({error:"invalid customer"});
+  if(pricingMode==="last_customer"&&customerId===null)return res.status(400).json({error:"last-customer pricing requires a customer"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
   if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
@@ -1058,11 +1085,12 @@ app.post("/api/sales", requirePermission("sales.create"), asyncRoute(async (req,
     const productRows=await client.query("select id,price,price_eur,price_usd,stock from products where id=any($1::bigint[]) and deleted_at is null for update",[items.map(item=>item.productId)]);
     if(productRows.rowCount!==items.length){const error=new Error("one or more products do not exist");error.status=400;throw error}
     const productById=new Map(productRows.rows.map(product=>[Number(product.id),product]));
-    const pricedItems=items.map(item=>({...item,price:discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent)}));
+    const previousPriceRows=pricingMode==="last_customer"?await lastCustomerSalePrices(client,customerId,currency,{productIds:items.map(item=>item.productId)}):[],previousPriceByProduct=new Map(previousPriceRows.map(row=>[Number(row.product_id),Number(row.price)]));
+    const pricedItems=items.map(item=>{const standardPrice=discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent),basePrice=previousPriceByProduct.get(item.productId)??standardPrice;return {...item,price:applySalesDiscount(basePrice,currency,manualDiscountPercent)}});
     if(!settings.allow_overselling){const unavailable=pricedItems.find(item=>Number(productById.get(item.productId).stock)-item.quantity<0);if(unavailable){const error=new Error(`insufficient stock for product ${unavailable.productId}; overselling is disabled`);error.status=409;throw error}}
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     const orderNo=await nextSalesOrderNumber(client,settings.sales_order_prefix);
-    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address,customer_discount_percent) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9,$10) returning *",[orderNo,customerId,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent]);
+    const order=await client.query("insert into sales(order_no,customer_id,total,status,created_by,notes,currency,delivery_phone,vehicle_plate,delivery_address,customer_discount_percent,manual_discount_percent,pricing_mode) values($1,$2,$3,'已完成',$4,$5,$6,$7,$8,$9,$10,$11,$12) returning *",[orderNo,customerId,total,req.user.username,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent,manualDiscountPercent,pricingMode]);
     for(const item of pricedItems){await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[order.rows[0].id,item.productId,item.quantity,item.price]);await client.query("update products set stock=stock-$1,updated_at=now() where id=$2",[item.quantity,item.productId]);await client.query("insert into inventory_movements(product_id,warehouse,quantity,movement_type,reference_no,created_by) values($1,$2,$3,'sale',$4,$5)",[item.productId,settings.default_warehouse,-item.quantity,order.rows[0].order_no,req.user.username]);}
     await client.query("commit");res.status(201).json(order.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
@@ -1074,9 +1102,11 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
   const notes=String(body.notes||"").trim().slice(0,1000);
   const deliveryPhone=String(body.deliveryPhone||"").trim().slice(0,100),vehiclePlate=String(body.vehiclePlate||"").trim().slice(0,50),deliveryAddress=String(body.deliveryAddress||"").trim().slice(0,500);
   const currency=String(body.currency||settings.default_currency).toUpperCase(),customerId=body.customerId?Number(body.customerId):null;
+  const {manualDiscountPercent,pricingMode}=salePricingOptions(body);
   const items=Array.isArray(body.items)?body.items.map(item=>({productId:Number(item.productId),quantity:Number(item.quantity)})):[];
   if(!currencies.has(currency))return res.status(400).json({error:"unsupported sale currency"});
   if(customerId!==null&&(!Number.isSafeInteger(customerId)||customerId<=0))return res.status(400).json({error:"invalid customer"});
+  if(pricingMode==="last_customer"&&customerId===null)return res.status(400).json({error:"last-customer pricing requires a customer"});
   if(!items.length||items.length>200)return res.status(400).json({error:"sale must contain between 1 and 200 items"});
   if(items.some(item=>!Number.isSafeInteger(item.productId)||item.productId<=0||!Number.isSafeInteger(item.quantity)||item.quantity===0))return res.status(400).json({error:"sale contains an invalid item"});
   if(new Set(items.map(item=>item.productId)).size!==items.length)return res.status(400).json({error:"duplicate products are not allowed"});
@@ -1097,7 +1127,8 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
     const productRows=[];
     for(const productId of productIds){const product=await client.query("select id,price,price_eur,price_usd,stock from products where id=$1 and deleted_at is null for update",[productId]);if(!product.rowCount){const error=new Error(`product ${productId} does not exist`);error.status=400;throw error}productRows.push(product.rows[0])}
     const productById=new Map(productRows.map(product=>[Number(product.id),product]));
-    const pricedItems=items.map(item=>({...item,price:discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent)}));
+    const previousPriceRows=pricingMode==="last_customer"?await lastCustomerSalePrices(client,customerId,currency,{productIds:items.map(item=>item.productId),excludeSaleId:Number(req.params.id)}):[],previousPriceByProduct=new Map(previousPriceRows.map(row=>[Number(row.product_id),Number(row.price)]));
+    const pricedItems=items.map(item=>{const standardPrice=discountedSalesPrice(productById.get(item.productId),currency,settings,discountPercent),basePrice=previousPriceByProduct.get(item.productId)??standardPrice;return {...item,price:applySalesDiscount(basePrice,currency,manualDiscountPercent)}});
     const total=pricedItems.reduce((sum,item)=>sum+item.quantity*item.price,0);
     if(sale.rows[0].stock_deducted){
       const stockChanges=new Map();
@@ -1107,7 +1138,7 @@ app.put("/api/sales/:id", requirePermission("sales.edit"), asyncRoute(async (req
     }
     await client.query("delete from sale_items where sale_id=$1",[req.params.id]);
     for(const item of pricedItems)await client.query("insert into sale_items(sale_id,product_id,quantity,price) values($1,$2,$3,$4)",[req.params.id,item.productId,item.quantity,item.price]);
-    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4,delivery_phone=$5,vehicle_plate=$6,delivery_address=$7,customer_discount_percent=$8 where id=$9 returning *",[customerId,total,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent,req.params.id]);
+    const updated=await client.query("update sales set customer_id=$1,total=$2,notes=$3,currency=$4,delivery_phone=$5,vehicle_plate=$6,delivery_address=$7,customer_discount_percent=$8,manual_discount_percent=$9,pricing_mode=$10 where id=$11 returning *",[customerId,total,notes,currency,deliveryPhone,vehiclePlate,deliveryAddress,discountPercent,manualDiscountPercent,pricingMode,req.params.id]);
     await client.query("commit");res.json(updated.rows[0]);
   }catch(e){await client.query("rollback");throw e}finally{client.release()}
 }));
