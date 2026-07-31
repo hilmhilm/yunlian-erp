@@ -475,15 +475,15 @@ Object.assign(messages.hu,{searchSales:"Rendelés, vevő vagy cikkszám keresés
 
 Object.assign(messages["zh-CN"],{
   quickDiscount:"快捷折扣",applyDiscount:"打折",invalidQuickDiscount:"折扣必须是 0 到 100 之间的数字",quickDiscountApplied:"已应用 {discount}% 快捷折扣",quickDiscountCleared:"已清除快捷折扣",
-  oldPrice:"老价格",oldPriceModeActive:"已优先采用该客户最近一次同币种成交价；没有历史价格的商品保持当前价格。",selectCustomerForOldPrice:"请先选择客户，再读取老价格",oldPriceApplied:"已为 {count} 个商品采用老价格",oldPriceLoadFailed:"读取老价格失败"
+  oldPrice:"老价格",oldPriceModeActive:"已优先采用该客户最近一次同币种成交价；没有历史价格的商品保持当前价格。",selectCustomerForOldPrice:"请先选择客户，再读取老价格",oldPriceApplied:"已为 {count} 个商品采用老价格",oldPriceLoadFailed:"读取老价格失败",originalUnitPrice:"原价",effectiveDiscount:"折扣",finalUnitPrice:"最终价格"
 });
 Object.assign(messages.en,{
   quickDiscount:"Quick discount",applyDiscount:"Apply",invalidQuickDiscount:"Discount must be a number between 0 and 100",quickDiscountApplied:"Applied a {discount}% quick discount",quickDiscountCleared:"Quick discount cleared",
-  oldPrice:"Previous price",oldPriceModeActive:"Using this customer's latest price in the same currency where available; other products keep their current price.",selectCustomerForOldPrice:"Select a customer before loading previous prices",oldPriceApplied:"Applied previous prices to {count} products",oldPriceLoadFailed:"Could not load previous prices"
+  oldPrice:"Previous price",oldPriceModeActive:"Using this customer's latest price in the same currency where available; other products keep their current price.",selectCustomerForOldPrice:"Select a customer before loading previous prices",oldPriceApplied:"Applied previous prices to {count} products",oldPriceLoadFailed:"Could not load previous prices",originalUnitPrice:"Original price",effectiveDiscount:"Discount",finalUnitPrice:"Final price"
 });
 Object.assign(messages.hu,{
   quickDiscount:"Gyors kedvezmény",applyDiscount:"Alkalmazás",invalidQuickDiscount:"A kedvezmény 0 és 100 közötti szám lehet",quickDiscountApplied:"{discount}% gyors kedvezmény alkalmazva",quickDiscountCleared:"Gyors kedvezmény törölve",
-  oldPrice:"Korábbi ár",oldPriceModeActive:"A vevő legutóbbi, azonos pénznemű ára van használatban; előzmény nélkül a jelenlegi ár marad.",selectCustomerForOldPrice:"A korábbi ár betöltése előtt válasszon vevőt",oldPriceApplied:"{count} terméknél korábbi ár alkalmazva",oldPriceLoadFailed:"A korábbi árak betöltése sikertelen"
+  oldPrice:"Korábbi ár",oldPriceModeActive:"A vevő legutóbbi, azonos pénznemű ára van használatban; előzmény nélkül a jelenlegi ár marad.",selectCustomerForOldPrice:"A korábbi ár betöltése előtt válasszon vevőt",oldPriceApplied:"{count} terméknél korábbi ár alkalmazva",oldPriceLoadFailed:"A korábbi árak betöltése sikertelen",originalUnitPrice:"Eredeti ár",effectiveDiscount:"Kedvezmény",finalUnitPrice:"Végső ár"
 });
 
 const LocaleContext = createContext(null);
