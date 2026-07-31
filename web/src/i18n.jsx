@@ -469,6 +469,10 @@ Object.assign(messages["zh-CN"],{expandSubcategories:"展开 {count} 个子分�
 Object.assign(messages.en,{expandSubcategories:"Expand {count} subcategories",collapseSubcategories:"Collapse {count} subcategories"});
 Object.assign(messages.hu,{expandSubcategories:"{count} alkategória kibontása",collapseSubcategories:"{count} alkategória összecsukása"});
 
+Object.assign(messages["zh-CN"],{searchSales:"搜索销售单号、客户名或货号"});
+Object.assign(messages.en,{searchSales:"Search order, customer or SKU"});
+Object.assign(messages.hu,{searchSales:"Rendelés, vevő vagy cikkszám keresése"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {

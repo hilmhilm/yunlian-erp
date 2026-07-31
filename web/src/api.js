@@ -147,6 +147,7 @@ const normalizeSale = (sale) => ({
   customerId: Number(sale.customer_id ?? sale.customerId) || null,
   customer: sale.customer || "",
   salesperson: sale.created_by || "",
+  productSkus: sale.product_skus ?? sale.productSkus ?? "",
   itemCount: Number(sale.item_count || 0),
   currency: sale.currency || "HUF",
   notes: sale.notes || "",
