@@ -215,6 +215,8 @@ const normalizeSaleDetail = (sale) => ({
     imageUrl: item.image_url ?? item.imageUrl ?? "",
     storageLocation: item.storage_location ?? item.storageLocation ?? "",
     quantity: Number(item.quantity || 0),
+    originalPrice: Number(item.original_price ?? item.originalPrice ?? item.price ?? 0),
+    discountPercent: Number(item.discount_percent ?? item.discountPercent ?? 0),
     price: Number(item.price || 0),
     stock: Number(item.stock || 0),
   })),
