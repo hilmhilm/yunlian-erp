@@ -486,6 +486,10 @@ Object.assign(messages.hu,{
   oldPrice:"Korábbi ár",oldPriceModeActive:"A vevő legutóbbi, azonos pénznemű ára van használatban; előzmény nélkül a jelenlegi ár marad.",selectCustomerForOldPrice:"A korábbi ár betöltése előtt válasszon vevőt",oldPriceApplied:"{count} terméknél korábbi ár alkalmazva",oldPriceLoadFailed:"A korábbi árak betöltése sikertelen",originalUnitPrice:"Eredeti ár",effectiveDiscount:"Kedvezmény",finalUnitPrice:"Végső ár",salesPrice:"Eladási ár"
 });
 
+Object.assign(messages["zh-CN"],{deliveryVat27:"VAT 27%"});
+Object.assign(messages.en,{deliveryVat27:"VAT 27%"});
+Object.assign(messages.hu,{deliveryVat27:"27% ÁFA"});
+
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
